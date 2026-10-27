@@ -113,6 +113,21 @@
   eq("plan internal domain skips", !!L.plan("domain", "printer.local").skip, true);
   eq("plan sha256 still has checks", L.plan("hash", "a".repeat(64)).checks.length, 2);
 
+  // ---- every result row must offer a way to open the evidence ----
+  // Regression: Team Cymru's row once showed a hit with no "Open" link because the check had no URL.
+  [["ip", "8.8.8.8"], ["domain", "example.com"], ["url", "https://example.com/x"],
+   ["hash", "44d88612fea8a8f36de82e1278abb02f"], ["hash", new Array(65).join("a")],
+   ["email", "a@example.org"]].forEach(function (s) {
+    L.plan(s[0], s[1]).checks.forEach(function (c) {
+      truthy("link present for " + s[0] + " / " + c.id, /^https:\/\//.test(c.href), c.name + " has href '" + c.href + "'");
+    });
+  });
+  (function () {
+    var mhr = L.plan("hash", "44d88612fea8a8f36de82e1278abb02f").checks.filter(function (c) { return c.id === "mhr"; })[0];
+    truthy("cymru link goes to VirusTotal for the same hash", /virustotal\.com\/gui\/file\/44d88612fea8a8f36de82e1278abb02f$/.test(mhr.href), mhr.href);
+    eq("cymru link is labelled honestly", mhr.hrefLabel, "Verify on VirusTotal");
+  })();
+
   // ---- end to end with a fake network ----
   var calls = [];
   function fakeFetch(handler) {

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.1 (2026-10-27)
+
+- Fixed: the Team Cymru malware-registry row showed a hit with no link. It now offers
+  "Verify on VirusTotal" for the same hash (the registry is a DNS service with no page of its own)
+- Added a regression test that every planned check offers a link (104 checks total)
+
 ## 1.1.0 (2026-10-27)
 
 - IOC pivot now checks free public sources automatically and shows which ones have a hit,

@@ -1,6 +1,6 @@
 # Seljan Security Tool Stack
 
-Version: 1.1.0
+Version: 1.1.1
 
 Free, browser-based security helpers served at https://seljan.net:
 
