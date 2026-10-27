@@ -111,21 +111,148 @@
     ip: "IP address", domain: "domain", url: "URL", hash: "file hash", email: "email address"
   };
 
+  // ---- automatic checks ---------------------------------------------------
+
+  var runToken = 0;          // bumps on every new lookup so late answers from an old one are ignored
+  var lastIndicator = null;
+  var CHIP = { hit: "Hit", notice: "Notice", clear: "No hit", info: "Info",
+    error: "Couldn't check", skip: "Skipped", pending: "Checking…" };
+  var RANK = { hit: 0, notice: 1, info: 2, clear: 3, error: 4, skip: 5 };
+
+  function byId(id) { return document.getElementById(id); }
+
+  function autoEnabled() {
+    try { return localStorage.getItem("seljan.autocheck") !== "0"; } catch (e) { return true; }
+  }
+  function saveAuto(on) {
+    try { localStorage.setItem("seljan.autocheck", on ? "1" : "0"); } catch (e) { /* storage unavailable */ }
+  }
+
+  function clearAuto() {
+    runToken++;
+    var s = byId("auto-status");
+    s.textContent = ""; s.className = "auto-status";
+    byId("auto-results").innerHTML = "";
+    byId("auto-note").hidden = true;
+    byId("auto-now").hidden = true;
+  }
+
+  function autoOffMessage() {
+    byId("auto-status").textContent = "Auto-check is off. Use the buttons below, or check now.";
+    byId("auto-now").hidden = false;
+  }
+
+  // All text from remote sources goes in with textContent, never innerHTML.
+  function makeRow(check) {
+    var li = document.createElement("li");
+    li.className = "chk pending";
+    var chip = document.createElement("span");
+    chip.className = "chip"; chip.textContent = CHIP.pending;
+    var body = document.createElement("div");
+    body.className = "chk-body";
+    var name = document.createElement("strong");
+    name.textContent = check.name;
+    var sum = document.createElement("span");
+    sum.className = "sum";
+    sum.textContent = "Asking " + (check.source || "the source") + "…";
+    body.appendChild(name); body.appendChild(sum);
+    li.appendChild(chip); li.appendChild(body);
+    return li;
+  }
+
+  function fillRow(li, check, res) {
+    li.className = "chk " + res.status;
+    li.dataset.rank = String(RANK[res.status]);
+    li.querySelector(".chip").textContent = CHIP[res.status];
+    li.querySelector(".sum").textContent = res.summary;
+    if (check.href && !li.querySelector("a.chk-link")) {
+      var a = document.createElement("a");
+      a.className = "chk-link";
+      a.href = check.href; a.target = "_blank"; a.rel = "noopener noreferrer";
+      a.textContent = "Open";
+      a.setAttribute("aria-label", "Open " + check.name + " in a new tab");
+      li.appendChild(a);
+    }
+  }
+
+  function summarize(c) {
+    var parts = [];
+    if (c.hit) parts.push(c.hit + (c.hit === 1 ? " hit" : " hits"));
+    if (c.notice) parts.push(c.notice + (c.notice === 1 ? " notice" : " notices"));
+    if (c.clear) parts.push(c.clear + " no hit");
+    if (c.info) parts.push(c.info + " info");
+    if (c.error) parts.push(c.error + " couldn't be checked");
+    if (!parts.length) return "Nothing to report.";
+    return (c.hit ? "" : "No hits. ") + parts.join(" · ");
+  }
+
+  function startAutoChecks(type, value) {
+    var token = ++runToken;
+    var statusEl = byId("auto-status"), listEl = byId("auto-results"), noteEl = byId("auto-note");
+    listEl.innerHTML = ""; noteEl.hidden = true;
+    byId("auto-now").hidden = true;
+    statusEl.className = "auto-status";
+    if (!window.SeljanLookups) {
+      statusEl.textContent = "Automatic checks couldn't load. Use the buttons below.";
+      return;
+    }
+
+    var rows = {}, noteText = "";
+    var counts = { hit: 0, notice: 0, clear: 0, info: 0, error: 0, skip: 0 };
+    statusEl.textContent = "Preparing checks…";
+
+    window.SeljanLookups.run(type, value, {
+      onSkip: function (msg) { if (token === runToken) statusEl.textContent = msg; },
+      onPlan: function (checks, note) {
+        if (token !== runToken) return;
+        noteText = note || "";
+        var sources = [];
+        checks.forEach(function (c) { if (c.source && sources.indexOf(c.source) < 0) sources.push(c.source); });
+        statusEl.textContent = "Checking " + checks.length + " sources straight from your browser (" +
+          sources.join(", ") + ")…";
+        checks.forEach(function (c) { var li = makeRow(c); rows[c.id] = li; listEl.appendChild(li); });
+      },
+      onResult: function (c, res) {
+        if (token !== runToken) return;
+        fillRow(rows[c.id], c, res);
+        counts[res.status] = (counts[res.status] || 0) + 1;
+      },
+      onDone: function () {
+        if (token !== runToken) return;
+        // Findings first: hits, then notices, then context, then no-hit, then failures.
+        Array.prototype.slice.call(listEl.children)
+          .sort(function (a, b) { return Number(a.dataset.rank) - Number(b.dataset.rank); })
+          .forEach(function (li) { listEl.appendChild(li); });
+        statusEl.textContent = summarize(counts);
+        statusEl.className = "auto-status" + (counts.hit ? " has-hit" : counts.notice ? " has-notice" : "");
+        noteEl.hidden = false;
+        noteEl.textContent = (noteText ? noteText + " " : "") +
+          "“No hit” only means these free sources have nothing on it. VirusTotal, AbuseIPDB, " +
+          "GreyNoise and a few others can't be queried from a browser, so use the buttons below for them.";
+      }
+    });
+  }
+
   function runPivot() {
     var raw = document.getElementById("ioc-input").value;
     var cleaned = refang(raw);
     var type = detect(cleaned);
     var typeEl = document.getElementById("ioc-type");
     var linksEl = document.getElementById("ioc-links");
+    var labelEl = byId("links-label");
+
+    clearAuto();
+    lastIndicator = null;
 
     if (!cleaned) {
-      typeEl.hidden = true; linksEl.innerHTML = ""; return;
+      typeEl.hidden = true; linksEl.innerHTML = ""; labelEl.hidden = true; return;
     }
     if (type === "unknown") {
       typeEl.hidden = false;
       typeEl.className = "ioc-type unknown";
       typeEl.textContent = "Couldn't recognize that as an IP, domain, URL, or hash. Check for typos.";
       linksEl.innerHTML = "";
+      labelEl.hidden = true;
       return;
     }
     typeEl.hidden = false;
@@ -138,6 +265,11 @@
       return '<a class="ioc-link" href="' + esc(l[1]) + '" target="_blank" rel="noopener noreferrer">' +
         esc(l[0]) + '<span aria-hidden="true">↗</span></a>';
     }).join("");
+    labelEl.hidden = false;
+
+    lastIndicator = { type: type, value: cleaned };
+    if (autoEnabled()) startAutoChecks(type, cleaned);
+    else autoOffMessage();
   }
 
   // ---- tool directory ---------------------------------------------------
@@ -255,6 +387,18 @@
     document.getElementById("ioc-btn").addEventListener("click", runPivot);
     document.getElementById("ioc-input").addEventListener("keydown", function (e) {
       if (e.key === "Enter") { e.preventDefault(); runPivot(); }
+    });
+
+    var toggle = byId("auto-toggle");
+    toggle.checked = autoEnabled();
+    toggle.addEventListener("change", function () {
+      saveAuto(toggle.checked);
+      if (!lastIndicator) return;
+      if (toggle.checked) startAutoChecks(lastIndicator.type, lastIndicator.value);
+      else { clearAuto(); autoOffMessage(); }
+    });
+    byId("auto-now").addEventListener("click", function () {
+      if (lastIndicator) startAutoChecks(lastIndicator.type, lastIndicator.value);
     });
     renderDirectory();
     var portInput = document.getElementById("port-input");

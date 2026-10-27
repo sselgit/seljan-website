@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; font-src 'self'; connect-src 'self' https://internetdb.shodan.io https://ipinfo.io https://dns.google https://cloudflare-dns.com https://security.cloudflare-dns.com https://otx.alienvault.com https://onionoo.torproject.org https://rdap.verisign.com https://rdap.publicinterestregistry.org https://rdap.identitydigital.services https://rdap.centralnic.com https://pubapi.registry.google https://rdap.nic.us; object-src 'none'; base-uri 'self'; form-action 'self'">
   <meta name="referrer" content="strict-origin-when-cross-origin">
   <title>Seljan Security Tool Stack</title>
   <meta name="description" content="A free security tool stack: pivot an IP, domain, URL, or file hash to the right lookup tools, browse a curated directory, check common ports, and scan a suspicious email. Runs in your browser.">
@@ -46,8 +46,9 @@
         </div>
         <p class="privacy-banner">
           <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 4v5c0 5-3.5 7.5-8 9-4.5-1.5-8-4-8-9V7z"/><path d="M9 12l2 2 4-4"/></svg>
-          <span><strong>Nothing is sent from this page.</strong> The pivot builds links for
-          you; your data only leaves your browser when <em>you</em> click through to a tool.</span>
+          <span><strong>No server of ours sits in the middle.</strong> Links are built in your
+          browser. If auto-check is on, your browser asks free public sources directly and
+          shows you the sources first. You can turn it off.</span>
         </p>
       </div>
     </section>
@@ -69,6 +70,19 @@
             <button type="button" id="ioc-btn" class="btn">Pivot</button>
           </div>
           <p id="ioc-type" class="ioc-type" hidden></p>
+
+          <div class="auto-bar">
+            <label class="auto-toggle">
+              <input type="checkbox" id="auto-toggle" checked>
+              <span>Check free sources automatically and show the hits</span>
+            </label>
+            <button type="button" id="auto-now" class="btn btn-small btn-ghost" hidden>Check now</button>
+          </div>
+          <p id="auto-status" class="auto-status" role="status" aria-live="polite"></p>
+          <ul id="auto-results" class="auto-results"></ul>
+          <p id="auto-note" class="help-note" hidden></p>
+
+          <p class="links-label" id="links-label" hidden>Open the full reports</p>
           <div id="ioc-links" class="ioc-links"></div>
           <p class="help-note">Defanged indicators are fine (for example <code>bad[.]com</code>
             or <code>hxxp://</code>); we clean them up. Links open in a new tab.</p>
@@ -138,14 +152,17 @@
       </div>
       <div class="footer-legal">
         <p>&copy; 2026 Seljan Security.</p>
-        <p><strong>Privacy:</strong> these tools run in your browser. We don't receive, store,
-          or transmit what you paste here. Links to third-party tools open in a new tab; once
-          you click through, that tool's own privacy terms apply.</p>
+        <p><strong>Privacy:</strong> these tools run in your browser and we have no server that
+          receives what you paste. If auto-check is on, your browser queries the public sources
+          listed with the results directly (never through us); the email checker sends nothing.
+          Links to third-party tools open in a new tab, and that tool's own privacy terms
+          apply.</p>
       </div>
     </div>
   </footer>
 
   <script src="js/main.js" defer></script>
+  <script src="js/lookups.js" defer></script>
   <script src="js/tools.js" defer></script>
 </body>
 </html>
