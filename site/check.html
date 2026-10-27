@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en" class="no-js">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <title>Free Email Checker | Seljan Security</title>
+  <meta name="description" content="Paste a suspicious email and see the warning signs explained, in plain English. Runs entirely in your browser; nothing is uploaded or stored.">
+  <meta name="theme-color" content="#0A3161">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="css/check.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="index.html" aria-label="Seljan Security home">
+        <img src="assets/logo/logo-icon.svg" alt="" width="52" height="52">
+        <span class="brand-text">Seljan <em>Security</em></span>
+      </a>
+      <nav class="site-nav" aria-label="Main">
+        <a href="index.html#pivot">IOC pivot</a>
+        <a href="index.html#directory">Tool directory</a>
+        <a href="index.html#ports">Port reference</a>
+        <a href="index.html" class="btn btn-small">Tool stack</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="section check-hero">
+      <div class="container">
+        <div class="section-head">
+          <p class="eyebrow">Free email checker</p>
+          <h1>Is this email trying to trick you?</h1>
+          <p>Paste a suspicious email below and we'll point out the warning signs and
+            explain each one in plain English.</p>
+        </div>
+
+        <p class="privacy-banner">
+          <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 4v5c0 5-3.5 7.5-8 9-4.5-1.5-8-4-8-9V7z"/><path d="M9 12l2 2 4-4"/></svg>
+          <span><strong>Private by design.</strong> This runs entirely in your browser.
+          Your email is never uploaded, saved, or sent anywhere, and we never open its
+          links or attachments.</span>
+        </p>
+
+        <div class="checker">
+          <label for="email-input" class="field-label">Paste the raw email or its full headers</label>
+          <textarea id="email-input" rows="12" spellcheck="false"
+            placeholder="Paste here. In most mail apps: open the message, choose &quot;Show original&quot; or &quot;View source / message headers&quot;, then copy everything and paste it in."></textarea>
+
+          <div class="checker-actions">
+            <button type="button" id="analyze-btn" class="btn">Check this email</button>
+            <label class="btn btn-ghost file-btn">
+              Upload an .eml file
+              <input type="file" id="file-input" accept=".eml,.txt,message/rfc822" hidden>
+            </label>
+            <button type="button" id="sample-btn" class="btn btn-ghost">Try a sample</button>
+            <button type="button" id="clear-btn" class="btn btn-ghost">Clear</button>
+          </div>
+
+          <p class="help-note">Tip: "raw" or "original" means the email with its technical
+            headers, not just the text you normally see. The more complete the paste, the
+            more we can check.</p>
+        </div>
+
+        <div id="results" class="results" hidden aria-live="polite"></div>
+
+        <p class="disclaimer">
+          This tool explains warning signs to help you learn; it is <strong>not</strong> a
+          guarantee that an email is safe or dangerous. A clean-looking message can still be
+          harmful. When in doubt, don't click, and check with the sender through a channel
+          you trust. Explore more free tools in the <a href="index.html">Security Tool Stack</a>.
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <img src="assets/logo/logo-full-white.svg" alt="Seljan Security" width="220" height="47">
+        <p>A free security tool stack.</p>
+      </div>
+      <div class="footer-links">
+        <a href="index.html">Tool stack</a>
+        <a href="index.html#pivot">IOC pivot</a>
+        <a href="index.html#ports">Port reference</a>
+      </div>
+      <div class="footer-legal">
+        <p>&copy; 2026 Seljan Security. All rights reserved.</p>
+        <p><strong>Privacy:</strong> the email checker runs only in your browser. We don't
+          receive, store, or transmit anything you paste or upload here.</p>
+      </div>
+    </div>
+  </footer>
+
+  <script src="js/check.js" defer></script>
+</body>
+</html>
