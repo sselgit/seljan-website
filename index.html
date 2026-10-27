@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en" class="no-js">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <title>Seljan Security Tool Stack</title>
+  <meta name="description" content="A free security tool stack: pivot an IP, domain, URL, or file hash to the right lookup tools, browse a curated directory, check common ports, and scan a suspicious email. Runs in your browser.">
+  <meta name="theme-color" content="#0A3161">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="css/tools.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="#top" aria-label="Seljan Security home">
+        <img src="assets/logo/logo-icon.svg" alt="" width="52" height="52">
+        <span class="brand-text">Seljan <em>Security</em></span>
+      </a>
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">
+        <span class="sr-only">Menu</span>
+        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+      <nav id="site-nav" class="site-nav" aria-label="Main">
+        <a href="#pivot">IOC pivot</a>
+        <a href="#directory">Tool directory</a>
+        <a href="#ports">Port reference</a>
+        <a href="check.html" class="btn btn-small">Email checker</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero tools-hero" id="top">
+      <div class="container">
+        <div class="section-head">
+          <p class="eyebrow">Security tool stack</p>
+          <h1>Fast pivots and checks for anything suspicious</h1>
+          <p class="lead">Paste an IP, domain, URL, or file hash and jump straight to the
+            right lookup tools. Browse a curated directory, check what a port is for, or scan
+            a suspicious email. Free, and it runs in your browser.</p>
+        </div>
+        <p class="privacy-banner">
+          <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 4v5c0 5-3.5 7.5-8 9-4.5-1.5-8-4-8-9V7z"/><path d="M9 12l2 2 4-4"/></svg>
+          <span><strong>Nothing is sent from this page.</strong> The pivot builds links for
+          you; your data only leaves your browser when <em>you</em> click through to a tool.</span>
+        </p>
+      </div>
+    </section>
+
+    <section class="section" id="pivot">
+      <div class="container">
+        <div class="section-head">
+          <p class="eyebrow">IOC pivot</p>
+          <h2>Look up an indicator everywhere at once</h2>
+          <p>Paste an IP address, domain, URL, or file hash (MD5/SHA-1/SHA-256). We detect
+            the type, un-defang it if needed, and give you one-click links to the tools that
+            handle it.</p>
+        </div>
+        <div class="tool-card">
+          <label for="ioc-input" class="field-label">Indicator</label>
+          <div class="ioc-row">
+            <input id="ioc-input" type="text" spellcheck="false" autocomplete="off"
+              placeholder="8.8.8.8   or   evil-example[.]com   or   hxxps://bad.example/login   or   a SHA-256 hash">
+            <button type="button" id="ioc-btn" class="btn">Pivot</button>
+          </div>
+          <p id="ioc-type" class="ioc-type" hidden></p>
+          <div id="ioc-links" class="ioc-links"></div>
+          <p class="help-note">Defanged indicators are fine (for example <code>bad[.]com</code>
+            or <code>hxxp://</code>); we clean them up. Links open in a new tab.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section section-alt" id="directory">
+      <div class="container">
+        <div class="section-head">
+          <p class="eyebrow">Tool directory</p>
+          <h2>A curated security tool stack</h2>
+          <p>Tools we reach for, grouped by job. These open the tool's home; use the pivot
+            above to jump straight to a specific indicator.</p>
+        </div>
+        <div id="directory-grid" class="dir-grid"></div>
+      </div>
+    </section>
+
+    <section class="section" id="ports">
+      <div class="container">
+        <div class="section-head">
+          <p class="eyebrow">Port reference</p>
+          <h2>What is this port for?</h2>
+          <p>Search by port number or service name to see what usually runs there and whether
+            it should be exposed to the internet.</p>
+        </div>
+        <div class="tool-card">
+          <label for="port-input" class="field-label">Port number or service</label>
+          <input id="port-input" type="text" spellcheck="false" autocomplete="off"
+            placeholder="e.g. 3389, rdp, smb, 443">
+          <div id="port-results" class="port-results"></div>
+          <p class="help-note">A live scan of a host needs a server and permission to scan
+            that host, so it isn't done from this page. To check your own exposure, use a
+            service such as
+            <a href="https://canyouseeme.org/" target="_blank" rel="noopener noreferrer">canyouseeme.org</a>
+            or ask us to set up a proper external scan.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="cta" id="email">
+      <div class="container cta-inner">
+        <div>
+          <h2>Got a suspicious email?</h2>
+          <p>Paste it into our free Email Checker and see the warning signs explained, all in
+            your browser.</p>
+        </div>
+        <div class="cta-contact">
+          <a class="btn btn-light" href="check.html">Open the Email Checker</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <img src="assets/logo/logo-full-white.svg" alt="Seljan Security" width="220" height="47">
+        <p>A free security tool stack.</p>
+      </div>
+      <div class="footer-links">
+        <a href="#pivot">IOC pivot</a>
+        <a href="#directory">Tool directory</a>
+        <a href="#ports">Port reference</a>
+        <a href="check.html">Email checker</a>
+      </div>
+      <div class="footer-legal">
+        <p>&copy; 2026 Seljan Security.</p>
+        <p><strong>Privacy:</strong> these tools run in your browser. We don't receive, store,
+          or transmit what you paste here. Links to third-party tools open in a new tab; once
+          you click through, that tool's own privacy terms apply.</p>
+      </div>
+    </div>
+  </footer>
+
+  <script src="js/main.js" defer></script>
+  <script src="js/tools.js" defer></script>
+</body>
+</html>
