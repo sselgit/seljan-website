@@ -53,3 +53,52 @@
 .port-table .pnum { font-weight: 700; color: var(--navy); font-variant-numeric: tabular-nums; }
 .port-table tr.risky .pnum { color: #DC2626; }
 .port-table tr.risky td { background: #FEF2F2; }
+
+/* Automatic checks */
+.auto-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 16px 0 8px; }
+.auto-toggle { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; color: var(--navy); cursor: pointer; }
+.auto-toggle input { width: 18px; height: 18px; accent-color: var(--red, #B31942); }
+.auto-status { margin: 4px 0 10px; font-weight: 600; color: var(--muted); min-height: 1.4em; }
+.auto-status.has-hit { color: #991B1B; font-size: 1.1rem; }
+.auto-status.has-notice { color: #92400E; }
+
+.auto-results { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.chk { display: flex; align-items: flex-start; gap: 12px; padding: 11px 14px; border: 1px solid var(--line);
+  border-left-width: 4px; border-radius: 10px; background: #fff; }
+.chk .chip { flex: none; min-width: 6.4em; text-align: center; font-size: 0.72rem; font-weight: 700;
+  letter-spacing: 0.03em; text-transform: uppercase; padding: 4px 8px; border-radius: 999px;
+  background: #E2E8F0; color: #334155; }
+.chk-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.chk-body strong { color: var(--navy); font-size: 0.95rem; }
+.chk .sum { color: var(--text); font-size: 0.9rem; overflow-wrap: anywhere; }
+.chk-link { flex: none; font-size: 0.85rem; font-weight: 600; text-decoration: none; align-self: center; }
+.chk-link:hover { text-decoration: underline; }
+
+.chk.hit { border-left-color: #DC2626; background: #FEF2F2; }
+.chk.hit .chip { background: #FEE2E2; color: #991B1B; }
+.chk.notice { border-left-color: #D97706; }
+.chk.notice .chip { background: #FEF3C7; color: #92400E; }
+.chk.clear { border-left-color: #16A34A; }
+.chk.clear .chip { background: #DCFCE7; color: #166534; }
+.chk.info { border-left-color: #64748B; }
+.chk.error { border-left-style: dashed; border-left-color: #94A3B8; }
+.chk.error .sum, .chk.skip .sum { color: var(--muted); }
+.chk.skip { border-left-color: #CBD5E1; }
+.chk.pending { border-left-color: #CBD5E1; }
+.chk.pending .sum { color: var(--muted); }
+.chk.pending .chip { animation: chkpulse 1.2s ease-in-out infinite; }
+@keyframes chkpulse { 50% { opacity: 0.45; } }
+@media (prefers-reduced-motion: reduce) { .chk.pending .chip { animation: none; } }
+
+.links-label { margin: 18px 0 6px; font-weight: 600; color: var(--navy); font-size: 0.9rem; }
+
+/* Author styles like .btn { display: ... } would otherwise override the hidden attribute. */
+[hidden] { display: none !important; }
+
+/* Phones: chip and Open link share a line; the explanation gets the full width below. */
+@media (max-width: 520px) {
+  .chk { flex-wrap: wrap; row-gap: 6px; }
+  .chk .chip { order: 1; min-width: 0; }
+  .chk-link { order: 2; margin-left: auto; align-self: center; }
+  .chk-body { order: 3; flex: 1 1 100%; }
+}

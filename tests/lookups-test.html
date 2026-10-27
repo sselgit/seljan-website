@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lookups tests</title>
+<style>
+  body { font: 14px/1.5 ui-monospace, Consolas, monospace; margin: 24px; }
+  .pass { color: #166534; } .fail { color: #991B1B; font-weight: bold; }
+  #summary { font-size: 18px; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+<h1>Lookups tests</h1>
+<div id="summary">Running...</div>
+<pre id="out"></pre>
+<script src="../site/js/lookups.js"></script>
+<script>
+(function () {
+  var L = window.SeljanLookups, T = L._test;
+  var lines = [], failed = 0, passed = 0;
+
+  function log(ok, name, detail) {
+    if (ok) passed++; else failed++;
+    lines.push('<span class="' + (ok ? "pass" : "fail") + '">' + (ok ? "PASS " : "FAIL ") + name +
+      (ok || !detail ? "" : "  -> " + detail) + "</span>");
+  }
+  function eq(name, actual, expected) {
+    var a = JSON.stringify(actual), e = JSON.stringify(expected);
+    log(a === e, name, "expected " + e + " got " + a);
+  }
+  function truthy(name, v, detail) { log(!!v, name, detail || String(v)); }
+  function throwsMsg(name, fn, re) {
+    try { fn(); log(false, name, "did not throw"); }
+    catch (e) { log(re.test(e.userMessage || e.message), name, "threw: " + e.message); }
+  }
+
+  // ---- helpers ----
+  eq("private 10.x", T.isPrivateIPv4("10.1.1.1"), true);
+  eq("private 192.168.x", T.isPrivateIPv4("192.168.0.5"), true);
+  eq("private 172.20", T.isPrivateIPv4("172.20.1.1"), true);
+  eq("public 172.32", T.isPrivateIPv4("172.32.0.1"), false);
+  eq("CGNAT 100.64", T.isPrivateIPv4("100.64.1.1"), true);
+  eq("TEST-NET 203.0.113", T.isPrivateIPv4("203.0.113.9"), true);
+  eq("multicast", T.isPrivateIPv4("224.0.0.1"), true);
+  eq("public 8.8.8.8", T.isPrivateIPv4("8.8.8.8"), false);
+  eq("reserved printer.local", T.isReservedHost("printer.local"), true);
+  eq("reserved single label", T.isReservedHost("intranet"), true);
+  eq("reserved home.arpa", T.isReservedHost("foo.home.arpa"), true);
+  eq("public example.com", T.isReservedHost("example.com"), false);
+  eq("registrable www", T.registrable("www.example.com"), "example.com");
+  eq("registrable co.uk", T.registrable("a.b.example.co.uk"), "example.co.uk");
+
+  // ---- evaluators ----
+  eq("internetdb 404 clear", T.evalInternetDb(404, null).status, "clear");
+  eq("internetdb malware tag hit", T.evalInternetDb(200, { tags: ["malware"], ports: [80] }).status, "hit");
+  eq("internetdb compromised hit", T.evalInternetDb(200, { tags: ["compromised"] }).status, "hit");
+  eq("internetdb scanner notice", T.evalInternetDb(200, { tags: ["scanner"] }).status, "notice");
+  eq("internetdb vulns notice", T.evalInternetDb(200, { vulns: ["CVE-1"] }).status, "notice");
+  eq("internetdb plain info", T.evalInternetDb(200, { ports: [443], tags: ["cdn"] }).status, "info");
+  throwsMsg("internetdb 500 throws", function () { T.evalInternetDb(500, null); }, /service had an error/);
+
+  eq("dnsbl listed hit", T.evalDnsbl([{ name: "A", ok: true, listed: true }, { name: "B", ok: true, listed: false }]).status, "hit");
+  eq("dnsbl clean", T.evalDnsbl([{ name: "A", ok: true, listed: false }]).status, "clear");
+  throwsMsg("dnsbl all failed throws", function () { T.evalDnsbl([{ name: "A", ok: false, listed: false }]); }, /None of the blocklists/);
+  truthy("dnsbl hit says spam/abuse not malware", /spam and abuse/.test(T.evalDnsbl([{ name: "A", ok: true, listed: true }]).summary));
+
+  eq("tor exit notice", T.evalTor({ relays: [{ nickname: "x", flags: ["Exit"], exit_addresses: ["1.2.3.4"] }] }, "1.2.3.4").status, "notice");
+  eq("tor non-exit info", T.evalTor({ relays: [{ nickname: "x", flags: ["Guard"], exit_addresses: [] }] }, "1.2.3.4").status, "info");
+  eq("tor none clear", T.evalTor({ relays: [] }, "1.2.3.4").status, "clear");
+
+  eq("otx 404 clear", T.evalOtx(404, null).status, "clear");
+  eq("otx pulses hit", T.evalOtx(200, { pulse_info: { count: 4, pulses: [{ name: "Bad stuff" }] } }).status, "hit");
+  truthy("otx hit names pulse", /Bad stuff/.test(T.evalOtx(200, { pulse_info: { count: 1, pulses: [{ name: "Bad stuff" }] } }).summary));
+  eq("otx whitelisted info (not a hit)", T.evalOtx(200, { pulse_info: { count: 50 }, validation: [{ name: "Whitelisted domain" }] }).status, "info");
+  truthy("otx whitelist quotes OTX's own words", /Whitelisted domain example\.com/.test(
+    T.evalOtx(200, { pulse_info: { count: 50 }, validation: [{ name: "Whitelisted domain", message: "Whitelisted domain example.com" }] }).summary));
+  truthy("otx whitelist with zero pulses has no '0 pulses' noise", !/0 pulse/.test(
+    T.evalOtx(200, { pulse_info: { count: 0 }, validation: [{ name: "Whitelisted domain", message: "Whitelisted domain x.com" }] }).summary));
+  eq("otx zero clear", T.evalOtx(200, { pulse_info: { count: 0 } }).status, "clear");
+  throwsMsg("otx 429 rate limited", function () { T.evalOtx(429, null); }, /Rate limited/);
+
+  var NOW = Date.UTC(2026, 9, 27);
+  function rdap(daysAgo) {
+    return { events: [{ eventAction: "registration", eventDate: new Date(NOW - daysAgo * 86400000).toISOString() }],
+      entities: [{ roles: ["registrar"], vcardArray: ["vcard", [["fn", {}, "text", "Example Registrar"]]] }] };
+  }
+  eq("rdap new domain notice", T.evalRdap(200, rdap(5), NOW, "x.com").status, "notice");
+  eq("rdap old domain info", T.evalRdap(200, rdap(1500), NOW, "x.com").status, "info");
+  truthy("rdap mentions registrar", /Example Registrar/.test(T.evalRdap(200, rdap(400), NOW, "x.com").summary));
+  eq("rdap 404 notice", T.evalRdap(404, null, NOW, "x.com").status, "notice");
+
+  function dns(status, a) { return { Status: status, Answer: (a || []).map(function (d) { return { type: 1, data: d }; }) }; }
+  eq("cf blocked hit", T.evalCfBlock(dns(0, ["0.0.0.0"]), dns(0, ["208.94.116.246"])).status, "hit");
+  eq("cf both nxdomain info", T.evalCfBlock(dns(3), dns(3)).status, "info");
+  eq("cf normal clear", T.evalCfBlock(dns(0, ["1.2.3.4"]), dns(0, ["1.2.3.4"])).status, "clear");
+
+  eq("mhr hit", T.evalMhr({ Answer: [{ type: 16, data: "1792871072 100" }] }).status, "hit");
+  truthy("mhr states percent", /100%/.test(T.evalMhr({ Answer: [{ type: 16, data: "1792871072 100" }] }).summary));
+  eq("mhr quoted txt hit", T.evalMhr({ Answer: [{ type: 16, data: "\"1792871072 55\"" }] }).status, "hit");
+  eq("mhr absent clear", T.evalMhr({ Status: 3 }).status, "clear");
+
+  function txt(vals) { return { Status: 0, Answer: vals.map(function (v) { return { type: 16, data: "\"" + v + "\"" }; }) }; }
+  var MX_OK = { Status: 0, Answer: [{ type: 15, data: "10 mail.example.com." }] };
+  eq("mail no dmarc notice", T.evalMail(MX_OK, txt(["v=spf1 -all"]), { Status: 3 }).status, "notice");
+  eq("mail dmarc none notice", T.evalMail(MX_OK, txt(["v=spf1 -all"]), txt(["v=DMARC1; p=none"])).status, "notice");
+  eq("mail dmarc reject info", T.evalMail(MX_OK, txt(["v=spf1 -all"]), txt(["v=DMARC1; p=reject"])).status, "info");
+  eq("mail null MX notice", T.evalMail({ Status: 0, Answer: [{ type: 15, data: "0 ." }] }, txt([]), { Status: 3 }).status, "notice");
+
+  // ---- planning / privacy rules ----
+  eq("plan private ip skips", !!L.plan("ip", "192.168.1.1").skip, true);
+  eq("plan public ip has 5 checks", L.plan("ip", "8.8.8.8").checks.length, 5);
+  eq("plan empty-file hash skips", !!L.plan("hash", "d41d8cd98f00b204e9800998ecf8427e").skip, true);
+  eq("plan internal domain skips", !!L.plan("domain", "printer.local").skip, true);
+  eq("plan sha256 still has checks", L.plan("hash", "a".repeat(64)).checks.length, 2);
+
+  // ---- end to end with a fake network ----
+  var calls = [];
+  function fakeFetch(handler) {
+    window.fetch = function (url, init) {
+      calls.push({ url: String(url), init: init });
+      return Promise.resolve(handler(String(url))).then(function (r) {
+        if (r instanceof Error) throw r;
+        return { status: r.status, ok: r.status >= 200 && r.status < 300, text: function () { return Promise.resolve(JSON.stringify(r.body)); } };
+      });
+    };
+  }
+
+  function safeDecode(s) { try { return decodeURIComponent(s); } catch (e) { return s; } }
+  // Every URL requested, both as sent and fully URL-decoded, so an encoded leak can't hide.
+  function everythingSent() {
+    var raw = calls.map(function (c) { return c.url; }).join("\n");
+    return raw + "\n" + safeDecode(raw);
+  }
+
+  function collect(type, value) {
+    var rec = { skipped: null, results: {}, note: null, planned: [], done: null };
+    return L.run(type, value, {
+      onSkip: function (m) { rec.skipped = m; },
+      onPlan: function (checks, note) { rec.planned = checks.map(function (c) { return c.id; }); rec.note = note; },
+      onResult: function (c, r) { rec.results[c.id] = r; },
+      onDone: function (r) { rec.done = r; }
+    }).then(function () { return rec; });
+  }
+
+  var tests = [];
+
+  tests.push(function () {
+    calls = [];
+    fakeFetch(function (url) {
+      if (/internetdb/.test(url)) return { status: 200, body: { tags: ["malware"], ports: [22] } };
+      if (/dns\.google/.test(url) && /spamcop/.test(url)) return { status: 200, body: { Status: 0, Answer: [{ type: 1, data: "127.0.0.2" }] } };
+      if (/dns\.google/.test(url)) return { status: 200, body: { Status: 3 } };
+      if (/onionoo/.test(url)) return { status: 200, body: { relays: [] } };
+      if (/otx/.test(url)) return { status: 200, body: { pulse_info: { count: 3, pulses: [{ name: "P" }] } } };
+      if (/ipinfo/.test(url)) return new TypeError("Failed to fetch");
+      return { status: 404, body: {} };
+    });
+    return collect("ip", "8.8.8.8").then(function (r) {
+      eq("e2e ip: internetdb hit", r.results.internetdb.status, "hit");
+      eq("e2e ip: dnsbl hit (SpamCop)", r.results.dnsbl.status, "hit");
+      eq("e2e ip: tor clear", r.results.tor.status, "clear");
+      eq("e2e ip: otx hit", r.results.otx.status, "hit");
+      eq("e2e ip: network failure becomes error row", r.results.ipinfo.status, "error");
+      truthy("e2e ip: error message is friendly", /unreachable|Blocked/.test(r.results.ipinfo.summary), r.results.ipinfo.summary);
+      eq("e2e ip: every check reported", Object.keys(r.results).length, 5);
+      truthy("e2e ip: onDone called", r.done && r.done.length === 5);
+      truthy("e2e: requests omit cookies and referrer", calls.every(function (c) {
+        return c.init.credentials === "omit" && c.init.referrerPolicy === "no-referrer";
+      }));
+    });
+  });
+
+  tests.push(function () {
+    calls = [];
+    fakeFetch(function () { return { status: 200, body: { pulse_info: { count: 0 } } }; });
+    return collect("url", "https://user:pw@evil-example.com/login/a?email=victim@corp.com&token=SECRET#frag").then(function (r) {
+      // Requests URL-encode the indicator, so check the raw AND the fully decoded form.
+      var sent = everythingSent();
+      truthy("url: query string never sent", !/victim|SECRET|token=|email=/.test(sent), sent);
+      truthy("url: credentials never sent", !/user:pw|user%3Apw|pw@|pw%40/i.test(sent), sent);
+      truthy("url: fragment never sent", !/frag/.test(sent), sent);
+      truthy("url: path is still sent to OTX", /login%2Fa/.test(sent), sent);
+      truthy("url: plan carries a privacy note", /without its query string/.test(r.note || ""), r.note);
+    });
+  });
+
+  tests.push(function () {
+    calls = [];
+    fakeFetch(function () { return { status: 200, body: { Status: 3 } }; });
+    return collect("email", "jane.doe@example.org").then(function (r) {
+      var sent = everythingSent();
+      truthy("email: mailbox name never sent", !/jane|doe/i.test(sent), sent);
+      truthy("email: domain is looked up", /example\.org/.test(sent));
+      truthy("email: plan carries a privacy note", /never the mailbox/.test(r.note || ""), r.note);
+    });
+  });
+
+  tests.push(function () {
+    calls = [];
+    fakeFetch(function () { return { status: 200, body: {} }; });
+    return collect("ip", "10.0.0.5").then(function (r) {
+      truthy("private ip: skipped with message", !!r.skipped);
+      eq("private ip: zero network requests", calls.length, 0);
+    });
+  });
+
+  tests.push(function () {
+    calls = [];
+    fakeFetch(function () { return { status: 200, body: {} }; });
+    return collect("hash", "275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f").then(function (r) {
+      eq("sha256: registry check skipped with explanation", r.results.mhr.status, "skip");
+      truthy("sha256: no cymru request was made", !calls.some(function (c) { return /cymru/.test(c.url); }));
+    });
+  });
+
+  tests.push(function () {
+    calls = [];
+    fakeFetch(function (url) {
+      if (/security\.cloudflare/.test(url)) return { status: 200, body: { Status: 0, Answer: [{ type: 1, data: "0.0.0.0" }] } };
+      if (/cloudflare-dns/.test(url)) return { status: 200, body: { Status: 0, Answer: [{ type: 1, data: "208.94.116.246" }] } };
+      if (/otx/.test(url)) return { status: 200, body: { pulse_info: { count: 0 } } };
+      return { status: 200, body: {} };
+    });
+    return collect("domain", "malware.wicar.org").then(function (r) {
+      eq("domain: cloudflare block is a hit", r.results.cfblock.status, "hit");
+    });
+  });
+
+  tests.push(function () {
+    // A stalled source must not hang the lookup: every request needs an abort signal, and an
+    // aborted request must surface as a friendly "Timed out" error row, not a crash.
+    calls = [];
+    window.fetch = function (url, init) {
+      calls.push({ url: String(url), init: init });
+      return new Promise(function (resolve, reject) {
+        init.signal.addEventListener("abort", function () {
+          var e = new Error("aborted"); e.name = "AbortError"; reject(e);
+        });
+      });
+    };
+    var realSetTimeout = window.setTimeout;
+    var realClear = window.clearTimeout;
+    // Fire every pending timeout immediately instead of waiting 9 seconds.
+    window.setTimeout = function (fn) { return realSetTimeout(fn, 0); };
+    return collect("hash", "44d88612fea8a8f36de82e1278abb02f").then(function (r) {
+      window.setTimeout = realSetTimeout; window.clearTimeout = realClear;
+      truthy("timeout: every request carries an abort signal", calls.length > 0 && calls.every(function (c) { return !!c.init.signal; }));
+      eq("timeout: stalled source becomes an error row", r.results.mhr.status, "error");
+      eq("timeout: message says timed out", r.results.mhr.summary, "Timed out.");
+      eq("timeout: all checks still report", Object.keys(r.results).length, 2);
+    }, function (e) { window.setTimeout = realSetTimeout; window.clearTimeout = realClear; throw e; });
+  });
+
+  // run sequentially
+  tests.reduce(function (p, t) { return p.then(t); }, Promise.resolve()).then(function () {
+    document.getElementById("out").innerHTML = lines.join("\n");
+    var s = document.getElementById("summary");
+    s.textContent = failed ? (failed + " FAILED, " + passed + " passed") : ("ALL " + passed + " PASSED");
+    s.className = failed ? "fail" : "pass";
+    window.__testResult = { failed: failed, passed: passed };
+  }, function (e) {
+    document.getElementById("summary").textContent = "Test harness crashed: " + e;
+    window.__testResult = { failed: -1, error: String(e) };
+  });
+})();
+</script>
+</body>
+</html>
