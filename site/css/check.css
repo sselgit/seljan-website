@@ -8,16 +8,16 @@
   max-width: 760px; margin: 0 auto 26px;
   background: var(--mint, #E6F5F3); background: var(--sky, #EAF0FA);
   border: 1px solid var(--line); border-radius: 12px; padding: 14px 18px;
-  color: var(--navy); font-size: 0.97rem;
+  color: var(--heading); font-size: 0.97rem;
 }
-.privacy-banner .i { color: var(--red, #B31942); flex: none; width: 22px; height: 22px; margin-top: 2px; }
+.privacy-banner .i { color: var(--red-text); flex: none; width: 22px; height: 22px; margin-top: 2px; }
 
 .checker { max-width: 760px; margin: 0 auto; }
-.field-label { display: block; font-weight: 600; color: var(--navy); margin-bottom: 8px; }
+.field-label { display: block; font-weight: 600; color: var(--heading); margin-bottom: 8px; }
 #email-input {
-  width: 100%; border: 1px solid var(--line); border-radius: 12px; padding: 14px;
+  width: 100%; border: 1px solid var(--field-border); border-radius: 12px; padding: 14px;
   font-family: ui-monospace, "Cascadia Code", Consolas, "Courier New", monospace;
-  font-size: 0.9rem; line-height: 1.5; color: var(--text); background: #fff; resize: vertical;
+  font-size: 0.9rem; line-height: 1.5; color: var(--text); background: var(--input-bg); resize: vertical;
 }
 #email-input:focus-visible { outline: 3px solid var(--red-light, #FF8FA3); outline-offset: 2px; }
 
@@ -28,36 +28,33 @@
 .results { max-width: 760px; margin: 28px auto 0; }
 
 .summary { border-radius: 12px; padding: 16px 18px; font-size: 1.05rem; margin-bottom: 8px; }
-.summary-alert { background: #FEE2E2; border: 1px solid #FCA5A5; color: #991B1B; }
-.summary-watch { background: #FEF3C7; border: 1px solid #FDE68A; color: #92400E; }
-.summary-ok { background: #DCFCE7; border: 1px solid #86EFAC; color: #166534; }
+.summary-alert { background: rgba(239, 68, 68, 0.14); border: 1px solid rgba(239, 68, 68, 0.5); color: #FECACA; }
+.summary-watch { background: rgba(245, 158, 11, 0.14); border: 1px solid rgba(245, 158, 11, 0.5); color: #FDE68A; }
+.summary-ok { background: rgba(34, 197, 94, 0.14); border: 1px solid rgba(34, 197, 94, 0.5); color: #BBF7D0; }
 .reminder { font-size: 0.88rem; color: var(--muted); margin: 0 0 16px; }
 
 .signal { border: 1px solid var(--line); border-left-width: 4px; border-radius: 10px;
-  padding: 14px 16px; margin-bottom: 12px; background: #fff; }
-.signal.alert { border-left-color: #DC2626; }
-.signal.watch { border-left-color: #D97706; }
+  padding: 14px 16px; margin-bottom: 12px; background: var(--surface); }
+.signal.alert { border-left-color: #EF4444; }
+.signal.watch { border-left-color: #F59E0B; }
 .signal.info  { border-left-color: #64748B; }
-.signal.ok    { border-left-color: #16A34A; }
+.signal.ok    { border-left-color: #22C55E; }
 
 .signal-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .sig-tag { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
   padding: 3px 8px; border-radius: 999px; white-space: nowrap; }
-.alert .sig-tag { background: #FEE2E2; color: #991B1B; }
-.watch .sig-tag { background: #FEF3C7; color: #92400E; }
-.info .sig-tag  { background: #E2E8F0; color: #334155; }
-.ok .sig-tag    { background: #DCFCE7; color: #166534; }
-.sig-title { font-weight: 700; color: var(--navy); }
+.alert .sig-tag { background: rgba(239, 68, 68, 0.22); color: #FFB4B4; }
+.watch .sig-tag { background: rgba(245, 158, 11, 0.20); color: #FCD34D; }
+.info .sig-tag  { background: #24385E; color: #C9D6EC; }
+.ok .sig-tag    { background: rgba(34, 197, 94, 0.18); color: #86EFAC; }
+.sig-title { font-weight: 700; color: var(--heading); }
 .sig-detail { margin: 8px 0 0; color: var(--text); font-size: 0.95rem; }
 .sig-ev { margin: 10px 0 0; background: var(--bg-alt, #F3F6FB); border: 1px solid var(--line);
-  border-radius: 8px; padding: 10px 12px; font-size: 0.82rem; color: #334155;
+  border-radius: 8px; padding: 10px 12px; font-size: 0.82rem; color: #C9D6EC;
   white-space: pre-wrap; word-break: break-word; overflow-x: auto; }
 
 .disclaimer { max-width: 760px; margin: 28px auto 0; font-size: 0.9rem; color: var(--muted);
   background: var(--bg-alt, #F3F6FB); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
 .disclaimer a { font-weight: 600; }
 
-@media (prefers-color-scheme: dark) {
-  /* The site is light-themed; keep the checker readable if a browser forces dark. */
-  #email-input { background: #fff; color: #1E293B; }
-}
+#email-input::placeholder { color: #8091AD; opacity: 1; }

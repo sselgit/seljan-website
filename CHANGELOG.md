@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.2.0 (2026-10-27)
+
+- Dark theme for the whole site (tool stack and email checker): dark navy surfaces, light text,
+  red accents kept for the flag-style branding
+- Colors are now design tokens (`--surface`, `--heading`, `--link`, ...) instead of hard-coded
+  whites and pastels; the old `--navy` is only used for fills, with a separate `--heading` for text
+- Status colors (hit / notice / no hit / info) rebuilt for dark backgrounds and checked with a
+  browser audit: no text below WCAG contrast (4.5:1, or 3:1 for large text) in any page state
+- Form fields get clearer borders (at least 3:1) and a dark native look (`color-scheme: dark`)
+- Removed the checker's old rule that forced a white input box on dark-mode browsers
+
 ## 1.1.1 (2026-10-27)
 
 - Fixed: the Team Cymru malware-registry row showed a hit with no link. It now offers
