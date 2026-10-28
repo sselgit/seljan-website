@@ -292,6 +292,17 @@
       var c = N.classifyIPv6(SK.$('net-v6').value);
       show('net-v6-out', kv([['Compressed', N.ipv6Compress(n)], ['Expanded', N.ipv6Expand(n)], ['Type', c.label + ' (' + c.rfc + ')']]));
     });
+
+    // Arriving from the search box: fill in the matching section and run it (these tools work offline).
+    var hq = SK.hashQuery();
+    if (hq.q) {
+      if (hq.k === 'cidr') { SK.$('net-cidr').value = hq.q; SK.$('net-cidr-run').click(); }
+      else {
+        SK.$('net-cls-in').value = hq.q; SK.$('net-cls-run').click();
+        if (hq.q.indexOf(':') >= 0) { SK.$('net-v6').value = hq.q; SK.$('net-v6-run').click(); }
+        else { SK.$('net-cidr').value = hq.q; SK.$('net-cidr-run').click(); }
+      }
+    }
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

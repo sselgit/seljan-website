@@ -1,5 +1,34 @@
 # Changelog
 
+## 1.4.0 (2026-10-28)
+
+- Eight new lookup tools that ask public sources straight from the browser: DNS records, DNS report
+  (name servers, SOA, SPF, DMARC, MTA-STS, CAA, DNSSEC, with ranked findings), DNSSEC test (DS, DNSKEY,
+  validation, signature expiry), DNS propagation (five public resolvers over the DNS wire format),
+  reverse DNS (with forward confirmation), WHOIS through RDAP (domain, IP and AS number), abuse
+  contacts (registrar plus network owner), and ASN and routing
+- Two new offline tools: MAC vendor lookup (IEEE MA-L, MA-M and MA-S, bundled as `site/data/oui.json`,
+  flags randomized and group addresses) and a free, disposable and ISP email check with an optional
+  mail-host step
+- Auto-detect: the toolkit hub has a "paste anything" box, and the home page search box now lists
+  matching toolkit tools as you type. It recognizes IPs, CIDR ranges, domains, URLs, emails, hashes,
+  MAC addresses, AS numbers, timestamps, encoded text, JWTs, CVE IDs and ATT&CK IDs. Tool pages open
+  pre-filled from the link; values travel in the URL fragment, never in the query string
+- Privacy: private, loopback, link-local, reserved and documentation addresses, and internal names,
+  are never sent to outside services (tests were checked by disabling each guard); lookups run only
+  when the button is pressed or the link carries `go=1`; each lookup page lists its exact sources in
+  its Content-Security-Policy, and offline pages keep `connect-src 'none'`
+- Built our own implementations; nothing is copied from third-party sites. Tools that need server-side
+  data or vantage points (reverse IP, passive DNS, port scan, traceroute, HTTP headers) are not
+  included
+- Fixed along the way: IPv6 addresses must stay unencoded in RDAP URLs, RRSIG times arrive as Unix
+  seconds from JSON resolvers, error messages no longer blame the network for page bugs, and the
+  tuner's number-normalizing regex
+- Tests: 505 checks in `tests/kit-test.html`, including the DNS parser against real captured responses
+  compared with Cloudflare's own JSON for the same queries
+- `scripts/gen_toolkit_pages.py`, `probe_rdap_hosts.py` and `build_oui.py` added to regenerate pages,
+  the registry allowlist and the vendor list
+
 ## 1.3.0 (2026-10-27)
 
 - New analyst toolkit (`toolkit.html`) with 10 tools, all client-side and all blocked from making

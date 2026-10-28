@@ -25,6 +25,10 @@
 <script src="../site/js/reference.js"></script>
 <script src="../site/js/tuner-data.js"></script>
 <script src="../site/js/tuner-core.js"></script>
+<script src="../site/js/netlookup.js"></script>
+<script src="../site/js/router.js"></script>
+<script src="../site/js/lookup-ui.js"></script>
+<script src="dns-fixtures.js"></script>
 <script>
 (async function () {
   var SK = window.SK, D = SK.decode, I = SK.ioc, T = SK.time, N = SK.net, H = SK.hash, A = SK.ach, Tr = SK.triage, R = SK.report, X = SK.tuner;
@@ -389,6 +393,370 @@
   eq("sample sanitize removes profile name", /jsmith/i.test(sanSample.texts.join("\n")), false);
   var anSan = X.analyze(X.parseLogs(sanSample.texts[2]).events);
   eq("analysis still works after sanitize", anSan.candidates.filter(function (c) { return !c.blocked && c.level === "strict"; }).length, 1);
+
+  // ================= network lookups: names and addresses =================
+  var NLx = SK.nl, RT = window.SKRoute;
+  eq("cleanName lowercases and strips dot", NLx.cleanName("Example.COM."), "example.com");
+  eq("cleanName punycode", NLx.cleanName("bücher.de"), "xn--bcher-kva.de");
+  eq("cleanName rejects url", NLx.cleanName("http://x.com"), null);
+  eq("cleanName rejects spaces", NLx.cleanName("a b.com"), null);
+  eq("cleanName rejects empty", NLx.cleanName(""), null);
+  eq("cleanName allows underscore labels", NLx.cleanName("_dmarc.example.com"), "_dmarc.example.com");
+  eq("reserved printer.local", NLx.isReservedName("printer.local"), true);
+  eq("reserved single label", NLx.isReservedName("intranet"), true);
+  eq("reserved home.arpa", NLx.isReservedName("foo.home.arpa"), true);
+  eq("reserved .test", NLx.isReservedName("x.test"), true);
+  eq("public example.com is not reserved", NLx.isReservedName("example.com"), false);
+  eq("reverse v4", NLx.reverseName("1.2.3.4"), "4.3.2.1.in-addr.arpa");
+  eq("reverse v6", NLx.reverseName("2001:db8::1"), "1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.8.b.d.0.1.0.0.2.ip6.arpa");
+  eq("reverse bad", NLx.reverseName("nope"), null);
+  eq("parseIp public", NLx.parseIp("8.8.8.8").routable, true);
+  eq("parseIp private", NLx.parseIp("10.0.0.1").routable, false);
+  eq("parseIp link-local v6", NLx.parseIp("fe80::1").routable, false);
+  eq("parseIp junk", NLx.parseIp("nope"), null);
+
+  // ================= DNS wire format =================
+  var q1 = NLx.encodeQuery("example.com", 1, {});
+  eq("encodeQuery header", Array.from(q1.slice(0, 12)), [0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0]);
+  eq("encodeQuery name and type", Array.from(q1.slice(12)), [7, 101, 120, 97, 109, 112, 108, 101, 3, 99, 111, 109, 0, 0, 1, 0, 1]);
+  var q2 = NLx.encodeQuery("example.com", 48, { dnssec: true, cd: true });
+  eq("encodeQuery DO adds an OPT record", [q2[11], q2[3]], [1, 0x10]);
+  eq("encodeQuery OPT tail", Array.from(q2.slice(q2.length - 11)), [0, 0, 41, 4, 208, 0, 0, 128, 0, 0, 0]);
+  eq("encodeQuery rejects long label", (function () { try { NLx.encodeQuery(new Array(65).join("a") + ".com", 1); return "no error"; } catch (e) { return "threw"; } })(), "threw");
+  var rt = NLx.decodeMessage(q1);
+  eq("decode own query", [rt.questions[0].name, rt.questions[0].type, rt.rd], ["example.com.", 1, true]);
+  eq("b64url", NLx.b64url(new Uint8Array([251, 255, 254])), "-__-");
+
+  var FX = window.DNS_FIXTURES;
+  function bytesFrom(b) { var r = atob(b), u = new Uint8Array(r.length); for (var i = 0; i < r.length; i++) u[i] = r.charCodeAt(i); return u; }
+  function norm(typeName, data) {
+    var x = String(data).replace(/\s+/g, " ").trim();
+    if (typeName === "TXT") return x.replace(/"/g, "").replace(/\s+/g, "");
+    if (typeName === "DNSKEY" || typeName === "DS") return x.replace(/ /g, "").toLowerCase();
+    return x.toLowerCase().replace(/\.(?=$| )/g, "");
+  }
+  var STABLE = { A: 1, AAAA: 1, NS: 1, MX: 1, CAA: 1, PTR: 1, SRV: 1, TXT: 1, DS: 1, DNSKEY: 1 };
+  Object.keys(FX).forEach(function (k) {
+    var f = FX[k], msg;
+    try { msg = NLx.decodeMessage(bytesFrom(f.b64)); } catch (e) { log(false, "decode " + k, e.message); return; }
+    eq("decode " + k + " rcode", msg.rcode, f.json.Status);
+    var types = {};
+    msg.answers.forEach(function (a) { types[a.typeName] = true; });
+    // Geo-balanced names answer differently between two captures, so those are checked for format only.
+    if (k === "google.com AAAA" || k === "www.github.com A") {
+      var addrs = msg.answers.filter(function (a) { return a.typeName === "A" || a.typeName === "AAAA"; });
+      truthy("decode " + k + " gives well-formed addresses", addrs.length > 0 && addrs.every(function (a) { return !!NLx.parseIp(a.data); }));
+      return;
+    }
+    Object.keys(types).filter(function (t) { return STABLE[t]; }).forEach(function (t) {
+      var mine = msg.answers.filter(function (a) { return a.typeName === t; }).map(function (a) { return norm(t, a.data); }).sort();
+      var theirs = (f.json.Answer || []).filter(function (a) { return NLx.typeName(a.type) === t; }).map(function (a) { return norm(t, a.data); }).sort();
+      eq("wire matches JSON for " + k + " " + t, mine, theirs);
+    });
+  });
+  var soaMsg = NLx.decodeMessage(bytesFrom(FX["google.com SOA"].b64)).answers[0];
+  var soaJson = FX["google.com SOA"].json.Answer[0].data.split(" ");
+  var soaMine = soaMsg.data.split(" ");
+  eq("SOA names and timers match JSON (serial excluded)", [soaMine[0], soaMine[1], soaMine.slice(3).join(" ")], [soaJson[0], soaJson[1], soaJson.slice(3).join(" ")]);
+  eq("decode flags on NXDOMAIN", NLx.decodeMessage(bytesFrom(FX["nonexistent-zz9.invalid A"].b64)).rcodeName, "NXDOMAIN");
+  truthy("NXDOMAIN carries an SOA in authority", NLx.decodeMessage(bytesFrom(FX["nonexistent-zz9.invalid A"].b64)).authority.some(function (a) { return a.typeName === "SOA"; }));
+  eq("PTR decode", NLx.decodeMessage(bytesFrom(FX["1.1.1.1 PTR"].b64)).answers[0].data, "one.one.one.one.");
+  eq("MX decode", NLx.decodeMessage(bytesFrom(FX["google.com MX"].b64)).answers[0].data, "10 smtp.google.com.");
+  var dk = NLx.decodeMessage(bytesFrom(FX["example.com DNSKEY do"].b64));
+  truthy("DNSKEY answers include RRSIG", dk.answers.some(function (a) { return a.typeName === "RRSIG"; }));
+  var rs = NLx.parseRrsig(dk.answers.filter(function (a) { return a.typeName === "RRSIG"; })[0].data);
+  eq("RRSIG covers DNSKEY and window is sane", [rs.covers, rs.expires > rs.inception], ["DNSKEY", true]);
+  var rsEpoch = NLx.parseRrsig("dnskey 13 2 3600 1797137738 1791867338 2371 cloudflare.com. 9I4zdAhezHHee/lhwiWL4");
+  eq("RRSIG accepts Unix-second times and lower-case type (JSON resolvers)", [rsEpoch.covers, rsEpoch.expires, rsEpoch.inception, rsEpoch.keyTag, rsEpoch.signer], ["DNSKEY", 1797137738000, 1791867338000, 2371, "cloudflare.com."]);
+  eq("RRSIG accepts presentation-format times", NLx.parseRrsig("A 13 2 300 20261110000000 20261020000000 12345 x.com. abcd").expires, Date.UTC(2026, 10, 10));
+  eq("RRSIG with junk times does not throw", isNaN(NLx.parseRrsig("A 13 2 300 xx yy 1 x.com. a").expires), true);
+  var key1 = NLx.parseDnskey(dk.answers.filter(function (a) { return a.typeName === "DNSKEY"; })[0].data);
+  truthy("DNSKEY parse", (key1.flags === 256 || key1.flags === 257) && key1.protocol === 3 && key1.key.length > 20);
+  var dsm = NLx.decodeMessage(bytesFrom(FX["cloudflare.com DS do"].b64));
+  var dsP = NLx.parseDs(dsm.answers.filter(function (a) { return a.typeName === "DS"; })[0].data);
+  truthy("DS parse", dsP.keyTag > 0 && dsP.alg > 0 && dsP.digest.length >= 40);
+  eq("decode too-short message throws", (function () { try { NLx.decodeMessage(new Uint8Array(5)); return "no error"; } catch (e) { return "threw"; } })(), "threw");
+  eq("decode bad pointer does not hang", (function () { try { NLx.decodeMessage(new Uint8Array([0,0,0,0,0,1,0,0,0,0,0,0,0xc0,12,0,1,0,1])); return "no error"; } catch (e) { return "threw"; } })(), "threw");
+  eq("algorithm names", [NLx.dnssecAlgName(13), NLx.dnssecAlgName(8), NLx.dsDigestName(2)], ["ECDSA P-256/SHA-256", "RSA/SHA-256", "SHA-256"]);
+
+  // ================= email records and zone report =================
+  var spf1 = NLx.parseSpf(['"v=spf1 include:_spf.google.com ip4:1.2.3.4 -all"']);
+  eq("spf basic", [spf1.count, spf1.all, spf1.lookups], [1, "-", 1]);
+  var spf2 = NLx.parseSpf(['"v=spf1 a mx include:x include:y ~all"']);
+  eq("spf lookups", [spf2.all, spf2.lookups], ["~", 4]);
+  eq("spf two records", NLx.parseSpf(['"v=spf1 -all"', '"v=spf1 +all"']).count, 2);
+  eq("spf none", NLx.parseSpf(['"hello"']).count, 0);
+  eq("spf split TXT strings", NLx.parseSpf(['"v=spf1 include:a.com " "-all"']).all, "-");
+  var dm = NLx.parseDmarc(['"v=DMARC1; p=reject; rua=mailto:a@b.co; pct=100"']);
+  eq("dmarc parse", [dm.policy, dm.tags.rua, dm.tags.pct], ["reject", "mailto:a@b.co", "100"]);
+  eq("dmarc none", NLx.parseDmarc(['"hello"']), null);
+  eq("soa parse", NLx.parseSoa("ns1.x. h.x. 2024010101 7200 3600 1209600 3600").expire, 1209600);
+  function lv(f, level) { return f.filter(function (x) { return x.level === level; }).map(function (x) { return x.title; }); }
+  var good = NLx.analyzeReport({ ns: ["a.ns.", "b.ns."], soa: "a.ns. h.x. 1 7200 3600 1209600 3600", a: ["93.184.216.34"], aaaa: ["2606:2800::1"], cname: [], mx: ["10 mail.x.com."], mxTargets: { "mail.x.com.": { a: ["1.2.3.4"], aaaa: [], cname: [] } },
+    txt: ['"v=spf1 include:_spf.x.com -all"'], dmarc: ['"v=DMARC1; p=reject; rua=mailto:r@x.com"'], caa: ['0 issue "letsencrypt.org"'], mtasts: ['"v=STSv1; id=1"'], dnssec: { verdict: "valid" } });
+  eq("good zone has no errors or warnings", [lv(good, "error"), lv(good, "warn")], [[], []]);
+  var bad = NLx.analyzeReport({ ns: ["a.ns."], soa: "", a: ["10.1.1.1"], aaaa: [], cname: [], mx: ["10 mail.x.com."], mxTargets: { "mail.x.com.": { a: [], aaaa: [], cname: ["alias.x.com."] } },
+    txt: ['"v=spf1 -all"', '"v=spf1 +all"'], dmarc: ['"v=DMARC1; p=none"'], caa: [], dnssec: { verdict: "bogus" } });
+  truthy("bad zone: duplicate SPF is an error", lv(bad, "error").indexOf("More than one SPF record") >= 0, JSON.stringify(lv(bad, "error")));
+  truthy("bad zone: MX to CNAME is an error", lv(bad, "error").indexOf("MX points to a CNAME") >= 0);
+  truthy("bad zone: bogus DNSSEC is an error", lv(bad, "error").indexOf("DNSSEC validation fails") >= 0);
+  truthy("bad zone: single NS warned", lv(bad, "warn").indexOf("Only one name server") >= 0);
+  truthy("bad zone: private A record warned", lv(bad, "warn").indexOf("A record points to a non-public address") >= 0);
+  truthy("bad zone: monitor-only DMARC warned", lv(bad, "warn").some(function (t) { return /monitor-only/.test(t); }));
+  eq("nxdomain report", NLx.analyzeReport({ rcode: 3 }).length, 1);
+  truthy("spf +all is an error", lv(NLx.analyzeReport({ ns: ["a.", "b."], mx: ["10 m."], mxTargets: {}, txt: ['"v=spf1 +all"'], dmarc: [] }), "error").some(function (t) { return /SPF: allow everything/.test(t); }));
+  truthy("spf without all is a warning", lv(NLx.analyzeReport({ ns: ["a.", "b."], mx: ["10 m."], mxTargets: {}, txt: ['"v=spf1 include:x.com"'], dmarc: [] }), "warn").some(function (t) { return /no "all"/.test(t); }));
+  truthy("null MX does not demand DMARC", lv(NLx.analyzeReport({ ns: ["a.", "b."], mx: ["0 ."], txt: ['"v=spf1 -all"'], dmarc: [] }), "warn").indexOf("No DMARC record") < 0);
+
+  // ================= DNSSEC and propagation =================
+  eq("dnssec unsigned", NLx.dnssecVerdict({ ds: [], dnskey: [] }), "unsigned");
+  eq("dnssec island", NLx.dnssecVerdict({ ds: [], dnskey: ["x"] }), "island");
+  eq("dnssec broken DS", NLx.dnssecVerdict({ ds: ["x"], dnskey: [] }), "brokenDs");
+  eq("dnssec valid", NLx.dnssecVerdict({ ds: ["x"], dnskey: ["y"], normal: { rcode: 0, ad: true }, cd: { rcode: 0 } }), "valid");
+  eq("dnssec bogus", NLx.dnssecVerdict({ ds: ["x"], dnskey: ["y"], normal: { rcode: 2, ad: false }, cd: { rcode: 0 } }), "bogus");
+  eq("dnssec unvalidated answer is unknown", NLx.dnssecVerdict({ ds: ["x"], dnskey: ["y"], normal: { rcode: 0, ad: false }, cd: { rcode: 0 } }), "unknown");
+  var R1 = { name: "One" }, R2 = { name: "Two" }, R3 = { name: "Three" };
+  var cmp1 = NLx.comparePropagation([{ resolver: R1, ok: true, rcode: 0, answers: ["1.1.1.1", "2.2.2.2"] }, { resolver: R2, ok: true, rcode: 0, answers: ["2.2.2.2", "1.1.1.1"] }, { resolver: R3, ok: false }]);
+  eq("propagation consistent ignores order and failures", [cmp1.consistent, cmp1.answered, cmp1.failed], [true, 2, 1]);
+  var cmp2 = NLx.comparePropagation([{ resolver: R1, ok: true, rcode: 0, answers: ["1.1.1.1"] }, { resolver: R2, ok: true, rcode: 0, answers: ["9.9.9.9"] }]);
+  eq("propagation detects a difference", [cmp2.consistent, cmp2.groups.length], [false, 2]);
+  eq("propagation NXDOMAIN grouped", NLx.comparePropagation([{ resolver: R1, ok: true, rcode: 3, answers: [] }]).groups[0].answer, "(NXDOMAIN)");
+
+  // ================= RDAP, ASN =================
+  var rdapDomain = { ldhName: "EXAMPLE.COM", status: ["client delete prohibited"], events: [{ eventAction: "registration", eventDate: "1995-08-14T04:00:00Z" }, { eventAction: "expiration", eventDate: "2027-08-13T04:00:00Z" }, { eventAction: "last changed", eventDate: "2026-08-14T07:01:34Z" }],
+    nameservers: [{ ldhName: "A.IANA-SERVERS.NET" }], secureDNS: { delegationSigned: true },
+    entities: [{ roles: ["registrar"], vcardArray: ["vcard", [["version", {}, "text", "4.0"], ["fn", {}, "text", "Example Registrar Inc."]]], publicIds: [{ type: "IANA Registrar ID", identifier: "376" }],
+      entities: [{ roles: ["abuse"], vcardArray: ["vcard", [["fn", {}, "text", ""], ["tel", { type: "voice" }, "text", "+1.3103015800"], ["email", {}, "text", "abuse@example.net"]]] }] }] };
+  var ds1 = NLx.summarizeDomain(rdapDomain);
+  eq("rdap domain summary", [ds1.registered, ds1.expires, ds1.updated, ds1.registrar, ds1.registrarId, ds1.nameservers, ds1.dnssec], ["1995-08-14", "2027-08-13", "2026-08-14", "Example Registrar Inc.", "376", ["a.iana-servers.net"], "signed"]);
+  eq("rdap abuse contact", [ds1.abuse.length, ds1.abuse[0].email, ds1.abuse[0].phone], [1, "abuse@example.net", "+1.3103015800"]);
+  var ip1 = NLx.summarizeIp({ name: "GOGL", handle: "NET-8-8-8-0-2", startAddress: "8.8.8.0", endAddress: "8.8.8.255", country: "US", type: "DIRECT ALLOCATION", cidr0_cidrs: [{ v4prefix: "8.8.8.0", length: 24 }],
+    entities: [{ roles: ["registrant"], vcardArray: ["vcard", [["fn", {}, "text", "Google LLC"]]] }, { roles: ["abuse"], vcardArray: ["vcard", [["email", {}, "text", "network-abuse@google.com"]]] }], remarks: [{ description: ["Hello", "world"] }] });
+  eq("rdap ip summary", [ip1.cidrs, ip1.organization, ip1.range, ip1.abuse[0].email, ip1.description], [["8.8.8.0/24"], "Google LLC", "8.8.8.0 - 8.8.8.255", "network-abuse@google.com", "Hello world"]);
+  var as1 = NLx.summarizeAutnum({ name: "GOOGLE", handle: "AS15169", startAutnum: 15169, endAutnum: 15169, country: "US", entities: [{ roles: ["registrant"], vcardArray: ["vcard", [["fn", {}, "text", "Google LLC"]]] }] });
+  eq("rdap autnum summary", [as1.range, as1.organization], ["AS15169", "Google LLC"]);
+  eq("rdap url", NLx.rdapUrl("domain", "example.com"), "https://rdap.org/domain/example.com");
+  eq("rdap url keeps IPv6 colons raw", NLx.rdapUrl("ip", "2606:4700:10::ac42:93f3"), "https://rdap.org/ip/2606:4700:10::ac42:93f3");
+  eq("rdap url IPv4", NLx.rdapUrl("ip", "8.8.8.8"), "https://rdap.org/ip/8.8.8.8");
+  eq("rdap url encodes odd characters", NLx.rdapUrl("domain", "bücher.de"), "https://rdap.org/domain/b%C3%BCcher.de");
+  eq("rdap empty json is safe", NLx.summarizeDomain({}).nameservers, []);
+  var co = NLx.parseCymruOrigin('"15169 | 8.8.8.0/24 | US | arin | 2023-12-28"');
+  eq("cymru origin", [co.asns, co.prefix, co.country, co.registry], [[15169], "8.8.8.0/24", "US", "arin"]);
+  eq("cymru multi-origin", NLx.parseCymruOrigin('"13335 15169 | 1.1.1.0/24 | AU | apnic | 2011-08-11"').asns, [13335, 15169]);
+  eq("cymru asn name", NLx.parseCymruAsn('"15169 | US | arin | 2000-03-30 | GOOGLE - Google LLC, US"').name, "GOOGLE - Google LLC, US");
+  eq("cymru origin name v4", NLx.cymruOriginName("8.8.4.4"), "4.4.8.8.origin.asn.cymru.com");
+  eq("cymru origin name v6", NLx.cymruOriginName("2606:4700:4700::1111"), "1.1.1.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.7.4.0.0.7.4.6.0.6.2.origin6.asn.cymru.com");
+  eq("parseAsn forms", [NLx.parseAsn("AS15169"), NLx.parseAsn("15169"), NLx.parseAsn("as 15169"), NLx.parseAsn("AS99999999999"), NLx.parseAsn("x")], [15169, 15169, 15169, null, null]);
+
+  // ================= MAC and email providers =================
+  eq("mac colon", NLx.parseMac("00:1A:2B:3C:4D:5E"), { hex: "001A2B3C4D5E", full: true });
+  eq("mac hyphen", NLx.parseMac("00-1a-2b-3c-4d-5e").hex, "001A2B3C4D5E");
+  eq("mac cisco dotted", NLx.parseMac("001a.2b3c.4d5e").hex, "001A2B3C4D5E");
+  eq("mac plain", NLx.parseMac("001a2b3c4d5e").full, true);
+  eq("mac oui only", NLx.parseMac("001A2B"), { hex: "001A2B", full: false });
+  eq("mac too long", NLx.parseMac("aa:bb:cc:dd:ee:ff:00"), null);
+  eq("mac junk", NLx.parseMac("zz:zz:zz"), null);
+  eq("mac flags normal", NLx.macFlags("001A2B3C4D5E"), { multicast: false, localAdmin: false, broadcast: false });
+  eq("mac flags locally administered", NLx.macFlags("021A2B3C4D5E").localAdmin, true);
+  eq("mac flags multicast", NLx.macFlags("011A2B3C4D5E").multicast, true);
+  eq("mac flags broadcast", NLx.macFlags("FFFFFFFFFFFF").broadcast, true);
+  eq("mac formats", NLx.formatMac("001A2B3C4D5E"), { colon: "00:1A:2B:3C:4D:5E", hyphen: "00-1A-2B-3C-4D-5E", dotted: "001a.2b3c.4d5e", plain: "001A2B3C4D5E" });
+  var db = { v: ["Alpha", "Beta", "Gamma"], L: { AABBCC: 0 }, M: { AABBCCD: 1 }, S: { AABBCCDDE: 2 } };
+  eq("oui longest prefix 36-bit", NLx.lookupOui(db, "AABBCCDDEEFF").vendor, "Gamma");
+  eq("oui 28-bit", NLx.lookupOui(db, "AABBCCD00000").vendor, "Beta");
+  eq("oui 24-bit", NLx.lookupOui(db, "AABBCC000000").vendor, "Alpha");
+  eq("oui miss", NLx.lookupOui(db, "112233445566"), null);
+  eq("oui partial prefix still matches 24-bit", NLx.lookupOui(db, "AABBCC").vendor, "Alpha");
+  eq("email free", NLx.classifyEmailDomain("bob@Gmail.com").category, "free");
+  eq("email free by pattern", NLx.classifyEmailDomain("yahoo.co.uk").category, "free");
+  eq("email disposable", NLx.classifyEmailDomain("a@mailinator.com").category, "disposable");
+  eq("email isp", NLx.classifyEmailDomain("comcast.net").category, "isp");
+  eq("email business", NLx.classifyEmailDomain("example.com").category, "none");
+  eq("mx provider google", NLx.mxProvider("10 aspmx.l.google.com."), "Google (Gmail or Google Workspace)");
+  eq("mx provider m365", NLx.mxProvider("x-com.mail.protection.outlook.com."), "Microsoft 365 / Exchange Online");
+  eq("mx provider unknown", NLx.mxProvider("mail.example.org."), "");
+
+  // ================= router =================
+  function kinds(v) { return RT.detect(v).map(function (m) { return m.kind; }); }
+  function hrefs(v) { var m = RT.detect(v)[0]; return m ? m.tools.map(function (t) { return t.href; }) : []; }
+  eq("route ipv4", kinds("8.8.8.8")[0], "ipv4");
+  truthy("route ipv4 tools", ["reverse.html#q=8.8.8.8&k=ip&go=1", "whois.html#q=8.8.8.8&k=ip&go=1", "asn.html#q=8.8.8.8&k=ip&go=1", "abuse.html#q=8.8.8.8&k=ip&go=1", "network.html#q=8.8.8.8&k=ip", "index.html#q=8.8.8.8&k=ip"].every(function (h) { return hrefs("8.8.8.8").indexOf(h) >= 0; }), JSON.stringify(hrefs("8.8.8.8")));
+  eq("route ipv6", kinds("2001:db8::1")[0], "ipv6");
+  eq("route bracketed ipv6", RT.detect("[2001:db8::1]")[0].value, "2001:db8::1");
+  eq("route cidr", kinds("10.0.0.0/8")[0], "cidr");
+  eq("route bad cidr is not cidr", kinds("10.0.0.0/40").indexOf("cidr"), -1);
+  var dRoute = RT.detect("Example.COM")[0];
+  eq("route domain lowercases", [dRoute.kind, dRoute.value], ["domain", "example.com"]);
+  truthy("route domain offers every DNS tool", ["dns.html", "dnsreport.html", "dnssec.html", "propagation.html", "whois.html", "abuse.html", "freemail.html"].every(function (p) { return dRoute.tools.some(function (t) { return t.href.indexOf(p + "#q=example.com") === 0; }); }));
+  var uRoute = RT.detect("hxxps://evil[.]com/a%20b")[0];
+  eq("route defanged url", uRoute.kind, "url");
+  truthy("route url sends host to dns tools and keeps url for decode", uRoute.tools.some(function (t) { return t.href.indexOf("dns.html#q=evil.com") === 0; }) && uRoute.tools.some(function (t) { return t.href.indexOf("decode.html#q=https%3A%2F%2Fevil.com") === 0; }));
+  var eRoute = RT.detect("bob@evil.com")[0];
+  eq("route email", eRoute.kind, "email");
+  truthy("route email checks mail domain", eRoute.tools.some(function (t) { return t.href.indexOf("dnsreport.html#q=evil.com") === 0; }) && eRoute.tools.some(function (t) { return t.href.indexOf("freemail.html#q=bob%40evil.com") === 0; }));
+  eq("route md5", RT.detect("d41d8cd98f00b204e9800998ecf8427e")[0].label, "MD5 or NTLM hash");
+  eq("route sha256", kinds("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")[0], "hash");
+  eq("route mac", kinds("00:1A:2B:3C:4D:5E")[0], "mac");
+  eq("route mac dotted", kinds("001a.2b3c.4d5e")[0], "mac");
+  eq("route clock time is not a mac", kinds("12:30:45").indexOf("mac"), -1);
+  eq("route asn", kinds("AS15169")[0], "asn");
+  truthy("route bare number offers asn, ports and reference", (function () { var m = RT.detect("4624")[0]; return m.kind === "number" && m.tools.length === 3; })());
+  eq("route unix timestamp", kinds("1700000000")[0], "timestamp");
+  eq("route iso date", kinds("2026-10-27 13:55:36")[0], "timestamp");
+  eq("route cve link", RT.detect("cve-2023-23397")[0].tools[0].href, "https://nvd.nist.gov/vuln/detail/CVE-2023-23397");
+  eq("route attack link", RT.detect("T1566.001")[0].tools[0].href, "https://attack.mitre.org/techniques/T1566/001/");
+  eq("route jwt", kinds("eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abc")[0], "jwt");
+  eq("route base64", kinds("SGVsbG8gV29ybGQhIFRoaXM=")[0], "encoded");
+  eq("route percent encoding", kinds("%68%74%74%70")[0], "encoded");
+  eq("route hex bytes with spaces", kinds("48 65 6c 6c 6f 20 57 6f 72 6c 64")[0], "encoded");
+  eq("route file name is not a domain", kinds("setup.exe")[0], "file");
+  eq("route plain word finds nothing", kinds("PowerShellScript"), []);
+  eq("route empty", kinds("   "), []);
+  eq("route free text", kinds("seen 8.8.8.8 and evil.com yesterday")[0], "text");
+  eq("route external links stay external", RT.detect("CVE-2023-23397")[0].tools[0].href.indexOf("https://") === 0, true);
+  eq("route value in fragment, not query", hrefs("8.8.8.8").every(function (h) { return h.indexOf("?") < 0; }), true);
+  eq("route encodes special characters", RT.detect("bob+x@evil.com")[0].tools[0].href.indexOf("bob%2Bx%40evil.com") > 0, true);
+  var box = document.createElement("div");
+  var shown = RT.render(box, RT.detect("8.8.8.8"));
+  truthy("route render builds links", shown >= 6 && box.querySelectorAll("a").length === shown && !box.hidden);
+  RT.render(box, []);
+  eq("route render hides when empty", box.hidden, true);
+
+  // ================= privacy gate: what may be sent to outside services =================
+  var LUx = SK.lu;
+  ["10.1.2.3", "192.168.0.5", "172.16.9.9", "127.0.0.1", "169.254.1.1", "100.64.0.1", "0.0.0.0", "224.0.0.1", "fe80::1", "fc00::1", "::1", "2001:db8::1", "198.51.100.7", "203.0.113.9"].forEach(function (ip) {
+    var t = LUx.parseTarget(ip, ["domain", "ip"]);
+    eq("private or reserved address is refused: " + ip, [!!t.error, t.kind], [true, undefined]);
+  });
+  ["printer.local", "intranet", "server.internal", "nas.lan", "host.corp", "x.home.arpa", "thing.test", "a.localhost", "router.home", "dc.localdomain", "localhost"].forEach(function (n) {
+    eq("internal name is refused: " + n, !!LUx.parseTarget(n, ["domain", "ip"]).error, true);
+  });
+  eq("url with an internal host is refused", !!LUx.parseTarget("http://intranet/login", ["domain"]).error, true);
+  eq("url with a private ip host is refused", !!LUx.parseTarget("https://10.0.0.1/admin", ["domain", "ip"]).error, true);
+  eq("email with an internal domain is refused", !!LUx.parseTarget("bob@corp.local", ["domain"]).error, true);
+  eq("bracketed private v6 is refused", !!LUx.parseTarget("[fe80::1]", ["ip"]).error, true);
+  eq("defanged internal name is refused", !!LUx.parseTarget("printer[.]local", ["domain"]).error, true);
+  eq("public address passes", LUx.parseTarget("8.8.8.8", ["ip"]), { kind: "ip", value: "8.8.8.8" });
+  eq("public v6 passes", LUx.parseTarget("2606:4700:4700::1111", ["ip"]).kind, "ip");
+  eq("public name passes and is lowercased", LUx.parseTarget("Example.COM", ["domain"]), { kind: "domain", value: "example.com" });
+  eq("url becomes its host", LUx.parseTarget("https://Sub.Example.com/a?b=c#d", ["domain"]).value, "sub.example.com");
+  eq("email becomes its domain, never the mailbox name", LUx.parseTarget("secret.person@example.org", ["domain"]).value, "example.org");
+  eq("defanged public name passes", LUx.parseTarget("evil[.]example[.]org", ["domain"]).value, "evil.example.org");
+  eq("sentence uses only its first word", LUx.parseTarget("example.com is the one", ["domain"]).value, "example.com");
+  eq("garbage is refused", !!LUx.parseTarget("not a domain!!", ["domain"]).error, true);
+  eq("ip given to a domain-only tool is refused", !!LUx.parseTarget("8.8.8.8", ["domain"]).error, true);
+  eq("domain given to an ip-only tool is refused", !!LUx.parseTarget("example.com", ["ip"]).error, true);
+  eq("empty is refused", !!LUx.parseTarget("", ["domain"]).error, true);
+  var fetchCalls = [], realFetch = window.fetch;
+  window.fetch = function (u) { fetchCalls.push(String(u)); return Promise.reject(new TypeError("Failed to fetch")); };
+  ["10.0.0.1", "printer.local", "http://intranet/x", "bob@corp.local"].forEach(function (v) { LUx.parseTarget(v, ["domain", "ip"]); });
+  eq("refused inputs trigger no network request", fetchCalls.length, 0);
+  var abuseNet = await NLx.abuseLookup({ kind: "domain", value: "x.com" }, { query: fakeQuery({ "x.com|1": { answers: ["10.0.0.1", "192.168.1.1", "127.0.0.1", "169.254.1.1"] }, "x.com|28": { answers: ["fe80::1", "::1"] } }), rdap: function () { return Promise.resolve({}); }, ripe: function (ep, ip) { fetchCalls.push("ripe " + ip); return Promise.resolve({ abuse_contacts: [] }); } });
+  eq("abuse lookup never queries a network source with a private address a domain resolves to", [fetchCalls.length, abuseNet.networks.length, abuseNet.noAddress], [0, 0, true]);
+  window.fetch = realFetch;
+
+  // ================= orchestration with fake sources =================
+  function fakeQuery(map, calls) {
+    return function (name, type, opts) {
+      if (calls) calls.push({ name: name, type: type, opts: opts });
+      var key = name + "|" + type + (opts && opts.cd ? "|cd" : "");
+      var v = map[key];
+      if (v === "ERR") return Promise.reject(new Error("boom"));
+      if (!v) v = { rcode: 0, answers: [] };
+      var answers = (v.answers || []).map(function (x) { return typeof x === "string" ? { name: name, type: type, typeName: NLx.typeName(type), ttl: v.ttl || 300, data: x } : x; });
+      return Promise.resolve({ rcode: v.rcode || 0, rcodeName: NLx.rcodeName(v.rcode || 0), ad: !!v.ad, answers: answers, authority: [], additional: [] });
+    };
+  }
+  var zone = {
+    "x.com|2": { answers: ["A.NS.x.com.", "b.ns.x.com."] }, "x.com|6": { answers: ["a.ns.x.com. h.x.com. 1 7200 3600 1209600 3600"] }, "x.com|1": { answers: ["93.184.216.34"], ttl: 120 },
+    "x.com|15": { answers: ["10 mail.x.com."] }, "x.com|16": { answers: ['"v=spf1 include:_spf.x.com -all"'] }, "x.com|257": { answers: ['0 issue "letsencrypt.org"'] },
+    "_dmarc.x.com|16": { answers: ['"v=DMARC1; p=reject; rua=mailto:r@x.com"'] }, "mail.x.com|1": { answers: ["1.2.3.4"] }
+  };
+  var calls1 = [];
+  var rep = await NLx.gatherReport("x.com", { query: fakeQuery(zone, calls1) });
+  eq("gather lowercases name servers", rep.ns, ["a.ns.x.com.", "b.ns.x.com."]);
+  eq("gather collects records", [rep.a, rep.mx, rep.soa.split(" ")[0], rep.minTtl], [["93.184.216.34"], ["10 mail.x.com."], "a.ns.x.com.", 120]);
+  eq("gather resolves MX targets", rep.mxTargets["mail.x.com."].a, ["1.2.3.4"]);
+  eq("gather unsigned zone", rep.dnssec.verdict, "unsigned");
+  eq("gathered zone analyzes clean", lv(NLx.analyzeReport(rep), "error"), []);
+  truthy("gather asks for DMARC and MTA-STS names", calls1.some(function (c) { return c.name === "_dmarc.x.com"; }) && calls1.some(function (c) { return c.name === "_mta-sts.x.com"; }));
+  var zoneErr = Object.assign({}, zone, { "x.com|15": "ERR" });
+  var rep2 = await NLx.gatherReport("x.com", { query: fakeQuery(zoneErr) });
+  eq("gather records partial failures", rep2.errors, ["MX"]);
+  var allFail = { query: function () { return Promise.reject(new Error("down")); } };
+  eq("gather rejects when nothing answers", await NLx.gatherReport("x.com", allFail).then(function () { return "resolved"; }, function (e) { return /Could not reach/.test(e.userMessage); }), true);
+  var nx = await NLx.gatherReport("gone.com", { query: fakeQuery({ "gone.com|2": { rcode: 3 }, "gone.com|1": { rcode: 3 } }) });
+  eq("gather reports NXDOMAIN", nx.rcode, 3);
+
+  var sec = {
+    "x.com|43": { answers: ["12345 13 2 ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789"] },
+    "x.com|48": { ad: true, answers: ["257 3 13 mdsswUyr3DPW132mOi8V9xESWE8jTo0dxCjjnopKl+GqJxpVXckHAeF+KkxLbxILfDLUT0rAK9iUzy1L53eKGQ==", { name: "x.com.", type: 46, typeName: "RRSIG", ttl: 300, data: "DNSKEY 13 2 3600 20261110000000 20261020000000 12345 x.com. abcd" }] }
+  };
+  var ds2 = await NLx.dnssecCheck("x.com", { query: fakeQuery(sec) });
+  eq("dnssec check valid", [ds2.verdict, ds2.ds.length, ds2.dnskey.length, ds2.rrsigs.length], ["valid", 1, 1, 1]);
+  var bogus = await NLx.dnssecCheck("x.com", { query: fakeQuery({ "x.com|43": sec["x.com|43"], "x.com|48": { rcode: 2, answers: [] }, "x.com|48|cd": { answers: sec["x.com|48"].answers } }) });
+  eq("dnssec check bogus (fails normally, works with checking disabled)", bogus.verdict, "bogus");
+  eq("dnssec check unsigned", (await NLx.dnssecCheck("x.com", { query: fakeQuery({}) })).verdict, "unsigned");
+  eq("dnssec check survives errors", (await NLx.dnssecCheck("x.com", { query: function () { return Promise.reject(new Error("x")); } })).verdict, "unknown");
+
+  var rev1 = await NLx.reverseLookup("93.184.216.34", { query: fakeQuery({ "34.216.184.93.in-addr.arpa|12": { answers: ["host.x.com."] }, "host.x.com|1": { answers: ["93.184.216.34"] } }) });
+  eq("reverse DNS forward-confirmed", [rev1.ptr[0].name, rev1.ptr[0].confirmed], ["host.x.com.", true]);
+  var rev2 = await NLx.reverseLookup("93.184.216.34", { query: fakeQuery({ "34.216.184.93.in-addr.arpa|12": { answers: ["host.x.com."] }, "host.x.com|1": { answers: ["1.1.1.1"] } }) });
+  eq("reverse DNS mismatch is not confirmed", rev2.ptr[0].confirmed, false);
+  var rev3 = await NLx.reverseLookup("2001:db8::1", { query: fakeQuery({ "1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.8.b.d.0.1.0.0.2.ip6.arpa|12": { answers: ["h6.x.com."] }, "h6.x.com|28": { answers: ["2001:0db8:0:0:0:0:0:1"] } }) });
+  eq("reverse DNS v6 compares numerically", rev3.ptr[0].confirmed, true);
+  eq("reverse DNS no PTR", (await NLx.reverseLookup("93.184.216.34", { query: fakeQuery({}) })).ptr, []);
+  eq("reverse DNS bad ip rejects", await NLx.reverseLookup("nope", { query: fakeQuery({}) }).then(function () { return "resolved"; }, function () { return "rejected"; }), "rejected");
+
+  var prCalls = [];
+  var pq = function (name, type, opts) {
+    prCalls.push(opts);
+    if (opts.resolver === "dnssb") return Promise.reject(new Error("blocked"));
+    var data = opts.resolver === "controld" ? "9.9.9.9" : "1.1.1.1";
+    return Promise.resolve({ rcode: 0, rcodeName: "NOERROR", ad: false, answers: [{ name: name, type: type, typeName: "A", ttl: 60, data: data }], authority: [] });
+  };
+  var prop = await NLx.propagation("x.com", 1, { query: pq });
+  eq("propagation asks every resolver over the wire", [prCalls.length, prCalls.every(function (o) { return o.wire === true; })], [5, true]);
+  eq("propagation summary", [prop.summary.answered, prop.summary.failed, prop.summary.consistent, prop.summary.groups.length], [4, 1, false, 2]);
+  eq("propagation keeps latency and ttl", [typeof prop.results[0].ms, prop.results[0].ttl], ["number", 60]);
+
+  var NOW = Date.parse("2026-10-28T00:00:00Z");
+  var wh = await NLx.whoisLookup("domain", "example.com", { rdap: function (k, v) { return Promise.resolve(rdapDomain); }, now: NOW });
+  eq("whois domain age and expiry", [wh.summary.ageDays > 11000, wh.summary.daysToExpiry], [true, 289]);
+  var rdapArgs = [];
+  await NLx.whoisLookup("asn", "AS15169", { rdap: function (k, v) { rdapArgs.push([k, v]); return Promise.resolve({ name: "GOOGLE" }); } });
+  eq("whois asn uses the autnum path", rdapArgs[0], ["autnum", "15169"]);
+  eq("whois not found rejects with a message", await NLx.whoisLookup("domain", "zz.com", { rdap: function () { return Promise.reject(new Error("x")); } }).then(function () { return "resolved"; }, function () { return "rejected"; }), "rejected");
+
+  var abuseFakes = {
+    query: fakeQuery({ "x.com|1": { answers: ["8.8.8.8", "10.0.0.1"] }, "x.com|28": { answers: ["fd00::1"] } }),
+    rdap: function (k, v) { return k === "domain" ? Promise.resolve(rdapDomain) : Promise.resolve({ name: "GOGL", entities: [{ roles: ["abuse"], vcardArray: ["vcard", [["email", {}, "text", "net-abuse@google.com"]]] }] }); },
+    ripe: function (ep, ip) { return Promise.resolve({ abuse_contacts: ["network-abuse@google.com"], authoritative_rir: "arin" }); }
+  };
+  var ab = await NLx.abuseLookup({ kind: "domain", value: "x.com" }, abuseFakes);
+  eq("abuse domain: registrar contact and only public addresses", [ab.registrar.abuse[0].email, ab.networks.length, ab.networks[0].ip], ["abuse@example.net", 1, "8.8.8.8"]);
+  eq("abuse network contacts from both sources", [ab.networks[0].ripe.contacts, ab.networks[0].rdap.abuse[0].email], [["network-abuse@google.com"], "net-abuse@google.com"]);
+  var ab2 = await NLx.abuseLookup({ kind: "ip", value: "8.8.8.8" }, Object.assign({}, abuseFakes, { ripe: function () { return Promise.reject(new Error("x")); } }));
+  eq("abuse ip: one source failing does not hide the other", [!!ab2.networks[0].ripe.error, ab2.networks[0].rdap.abuse.length], [true, 1]);
+  var ab3 = await NLx.abuseLookup({ kind: "domain", value: "x.com" }, Object.assign({}, abuseFakes, { query: fakeQuery({}) }));
+  eq("abuse domain without addresses", [ab3.noAddress, ab3.networks.length], [true, 0]);
+
+  var asnFakes = {
+    query: fakeQuery({ "8.8.8.8.origin.asn.cymru.com|16": { answers: ['"15169 | 8.8.8.0/24 | US | arin | 2023-12-28"'] }, "AS15169.asn.cymru.com|16": { answers: ['"15169 | US | arin | 2000-03-30 | GOOGLE - Google LLC, US"'] } }),
+    rdap: function () { return Promise.resolve({ name: "GOOGLE", handle: "AS15169", startAutnum: 15169, endAutnum: 15169 }); },
+    ripe: function (ep) { return Promise.resolve(ep === "as-overview" ? { holder: "GOOGLE - Google LLC", announced: true } : { prefixes: [{ prefix: "8.8.8.0/24" }, { prefix: "8.8.4.0/24" }] }); }
+  };
+  var asnR = await NLx.asnLookup("8.8.8.8", asnFakes);
+  eq("asn from ip", [asnR.asn, asnR.origin.prefix, asnR.info.name, asnR.rdap.range, asnR.overview.announced], [15169, "8.8.8.0/24", "GOOGLE - Google LLC, US", "AS15169", true]);
+  eq("asn prefixes load on request", await NLx.asnPrefixes(15169, asnFakes), { count: 2, sample: ["8.8.8.0/24", "8.8.4.0/24"] });
+  var asnR2 = await NLx.asnLookup("as15169", asnFakes);
+  eq("asn from number skips the origin step", [asnR2.asn, asnR2.origin, asnR2.ip], [15169, null, null]);
+  var asnR3 = await NLx.asnLookup("AS15169", Object.assign({}, asnFakes, { rdap: function () { return Promise.reject(new Error("x")); } }));
+  eq("asn isolates a failing source", [!!asnR3.errors.rdap, asnR3.info !== null, asnR3.overview !== null], [true, true, true]);
+  eq("asn rejects junk", await NLx.asnLookup("hello", asnFakes).then(function () { return "resolved"; }, function (e) { return /AS number/.test(e.userMessage); }), true);
+  var asnR4 = await NLx.asnLookup("8.8.8.8", Object.assign({}, asnFakes, { query: fakeQuery({}) }));
+  eq("asn from ip with no route", [asnR4.asn, !!asnR4.errors.origin], [null, true]);
+  eq("hashQuery parses fragments", (function () { var old = location.hash; location.hash = "#q=a%20b%2Bc&k=ip&go=1"; var r = SK.hashQuery(); location.hash = old; return [r.q, r.k, r.go]; })(), ["a b+c", "ip", "1"]);
 
   // ---- report ----
   document.getElementById("summary").innerHTML = '<span class="' + (failed ? "fail" : "pass") + '">' + passed + " passed, " + failed + " failed</span>";

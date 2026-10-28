@@ -596,6 +596,10 @@
       SK.$('dec-file-name').textContent = f.name + ' (' + workBytes.length + ' bytes, read locally)';
       inspectBytes(workBytes);
     });
+
+    // Arriving from the search box: fill in and run (this tool works offline).
+    var hq = SK.hashQuery();
+    if (hq.q) { input.value = hq.q; runAll(); runPeel(); }
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

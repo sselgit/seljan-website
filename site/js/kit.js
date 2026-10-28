@@ -86,5 +86,17 @@
     });
   };
 
+  // Values passed between pages live in the URL fragment (#q=...&k=...&go=1). Browsers never send the
+  // fragment to a server, so what a visitor looks up does not appear in anyone's logs.
+  SK.hashQuery = function () {
+    var out = {}, h = String(location.hash || '').replace(/^#/, '');
+    h.split('&').forEach(function (p) {
+      var i = p.indexOf('=');
+      if (i < 1) return;
+      try { out[p.slice(0, i)] = decodeURIComponent(p.slice(i + 1)); } catch (e) { /* ignore a malformed value */ }
+    });
+    return out;
+  };
+
   SK.pad = function (n, w) { var s = String(n); while (s.length < (w || 2)) s = '0' + s; return s; };
 })();

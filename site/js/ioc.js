@@ -181,6 +181,10 @@
       ]);
       box.appendChild(all);
     });
+
+    // Arriving from the search box: fill in and extract (this tool works offline).
+    var hq = SK.hashQuery();
+    if (hq.q) { input.value = hq.q; SK.$('ioc-extract').click(); SK.$('ioc-defang').click(); }
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

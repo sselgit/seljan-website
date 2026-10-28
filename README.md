@@ -1,54 +1,88 @@
 # Seljan Security Tool Stack
 
-Version: 1.3.0
+Version: 1.4.0
 
 Free, browser-based security helpers served at https://seljan.net:
 
 - **IOC pivot:** paste an IP, domain, URL, file hash, or email address. It cleans up defanged
   text (`hxxp://`, `[.]`), automatically checks free public sources and shows which ones have a
-  hit, and gives one-click links to the full reports.
+  hit, and gives one-click links to the full reports. As you type, it also **auto-detects** what you
+  pasted (MAC address, AS number, encoded text, timestamp, CIDR range, and more) and lists every
+  toolkit tool that fits.
 - **Tool directory:** a curated list of reputation, sandbox, email/DNS, and recon tools.
 - **Port reference:** what common ports are for and whether they should be exposed.
 - **Email checker:** paste a suspicious email and see the warning signs explained.
-- **Analyst toolkit** (`toolkit.html`): decoder (Base64, hex, URL, escapes, XOR, compressed data),
-  indicator defang/refang/extract, timestamp converter, IP and CIDR math, hash and file-type checks,
-  a hypothesis worksheet, phishing triage, an incident-note builder, reference tables, and a **rule
-  tuner** that proposes narrow exclusions for a noisy detection rule (YARA-L, Sigma, Splunk, Kusto,
-  regex, or plain language).
+- **Analyst toolkit** (`toolkit.html`), with a "paste anything" search at the top:
+  - *Offline tools:* decoder (Base64, hex, URL, escapes, XOR, compressed data), indicator
+    defang/refang/extract, timestamp converter, IP and CIDR math, hash and file-type checks, MAC
+    vendor lookup, free/disposable email check, a hypothesis worksheet, phishing triage, an
+    incident-note builder, reference tables, and a **rule tuner** that proposes narrow exclusions for
+    a noisy detection rule (YARA-L, Sigma, Splunk, Kusto, regex, or plain language).
+  - *Lookup tools:* DNS records, DNS report, DNSSEC test, DNS propagation, reverse DNS, WHOIS (via
+    RDAP), abuse contacts, and ASN and routing.
 
-Everything runs in the browser and there is no server of ours in the middle. The analyst toolkit pages
-go further: their Content-Security-Policy sets `connect-src 'none'`, so they cannot make any network
-request at all, and they use no cookies or storage. With auto-check
-on (the default; there is a checkbox), the browser asks the sources directly, and the page lists
-them. Private addresses and internal names are never sent, URL lookups drop the query string,
-fragment and credentials, and email lookups send only the domain. No cookies, analytics, or
-tracking.
+## Privacy model
 
-## Which sources are checked automatically
+Everything runs in the visitor's browser; there is no server of ours in the middle, and no cookies,
+analytics, or tracking.
 
-| Indicator | Sources |
+- **Offline toolkit pages** set `connect-src 'none'` in their Content-Security-Policy, so they cannot
+  make any network request. The MAC page allows only its own `data/oui.json`.
+- **Lookup pages** list exactly the public sources they use in `connect-src`. They ask those sources
+  directly, only when the visitor presses the button (or opens a link from the search box, which
+  carries `go=1`). Requests omit cookies and the referrer.
+- **Private addresses and internal names are never sent.** `SK.lu.parseTarget` refuses private,
+  link-local, loopback, documentation and reserved addresses and names such as `printer.local`; URL
+  inputs use only the host and email inputs only the domain. This is covered by tests that were
+  checked by deliberately disabling each guard.
+- **Values travel in the URL fragment** (`page.html#q=value&k=kind&go=1`), which browsers never send to
+  a server, so lookups do not appear in server logs.
+- The IOC pivot's auto-check works as before (a checkbox, default on) and its sources are listed below.
+
+## Which sources are used
+
+| Where | Sources |
 |---|---|
-| IP | Shodan InternetDB, six spam/abuse DNS blocklists, Tor Project (Onionoo), AlienVault OTX, ipinfo |
-| Domain, URL host, email domain | Cloudflare malware-filtering DNS, AlienVault OTX, registration age (RDAP), MX/SPF/DMARC for email |
-| File hash | Team Cymru malware hash registry (MD5 and SHA-1 only), AlienVault OTX |
+| IOC pivot, IP | Shodan InternetDB, six spam/abuse DNS blocklists, Tor Project (Onionoo), AlienVault OTX, ipinfo |
+| IOC pivot, domain, URL host, email domain | Cloudflare malware-filtering DNS, AlienVault OTX, registration age (RDAP), MX/SPF/DMARC for email |
+| IOC pivot, file hash | Team Cymru malware hash registry (MD5 and SHA-1 only), AlienVault OTX |
+| DNS records, report, DNSSEC, reverse DNS, free-email MX step | Google Public DNS or Cloudflare 1.1.1.1 (DNS-over-HTTPS) |
+| DNS propagation | Google, Cloudflare, DNS.SB, Control D (unfiltered) and RethinkDNS, over the DNS wire format |
+| WHOIS | RDAP, through the rdap.org redirector to the registry that holds the record (about 250 registries allow browser requests; see below) |
+| Abuse contacts | RDAP, RIPEstat abuse-contact-finder, Google Public DNS |
+| ASN | Team Cymru IP-to-ASN mapping (DNS), RDAP, RIPEstat |
+| MAC vendor | IEEE MA-L, MA-M and MA-S registries, bundled as `site/data/oui.json` (no lookup) |
 
 VirusTotal, AbuseIPDB, GreyNoise, MalwareBazaar, URLhaus and urlscan don't allow requests from
 browser pages (each was tested on 2026-10-27), so they remain click-through links. A "no hit"
-means only that the free sources have nothing on the indicator.
+means only that the free sources have nothing on the indicator. ViewDNS-style tools that need
+server-side data or vantage points (reverse IP, reverse whois, IP history, subdomain discovery, HTTP
+headers, port scans, traceroute, global ping, firewall-region tests) are deliberately not built: a
+browser cannot do them, and a scanner run from this site could be abused.
 
 ## Layout
 
 | Path | What it is |
 |---|---|
 | `site/` | The website (plain HTML, CSS, JavaScript; no build step) |
-| `site/js/lookups.js` | The automatic lookup engine |
-| `site/toolkit.html` and the other toolkit pages | The analyst toolkit (one HTML page per tool, shared `css/toolkit.css` and `js/kit.js`) |
-| `site/js/tuner-core.js` | Rule tuner engine: sanitize, parse logs, flag risky activity, propose and write exclusions |
-| `site/js/tuner-data.js` | Rule tuner teaching content (risk catalog, examples, sample data) |
-| `tests/lookups-test.html` | Browser test page for the lookup engine (not published) |
-| `tests/kit-test.html` | Browser test page for the toolkit (not published) |
-| `tests/contrast-audit.js` | Dev-only WCAG contrast audit you can load into a page (not published) |
+| `site/js/lookups.js` | The IOC pivot's automatic lookup engine |
+| `site/js/router.js` | Auto-detect: reads pasted text and lists the tools that fit (offline) |
+| `site/js/netlookup.js` | Lookup engine: DNS wire-format parser, resolvers, RDAP, ASN, DNSSEC, MAC, email providers |
+| `site/js/lookup-ui.js` | Shared page helpers for the lookup tools, including the private-address gate |
+| `site/toolkit.html` and the other toolkit pages | One HTML page per tool, shared `css/toolkit.css` and `js/kit.js` |
+| `site/js/tuner-core.js`, `tuner-data.js` | Rule tuner engine and teaching content |
+| `site/data/oui.json` | MAC vendor list built from the IEEE public registries |
+| `scripts/gen_toolkit_pages.py` | Regenerates the toolkit HTML pages (the Content-Security-Policy for each page is built here) |
+| `scripts/probe_rdap_hosts.py` | Refreshes `scripts/rdap-cors-hosts.json`, the registries allowed in the WHOIS pages' policy |
+| `scripts/build_oui.py` | Rebuilds `site/data/oui.json` from IEEE (run every few months) |
 | `scripts/publish.sh` | Publishes `site/` to the `gh-pages` branch (GitHub Pages) |
+| `tests/lookups-test.html` | Browser test page for the IOC pivot engine (not published) |
+| `tests/kit-test.html` | Browser test page for the toolkit and lookup engine (not published) |
+| `tests/dns-fixtures.js` | Real DNS responses used to test the parser, in wire format and JSON |
+| `tests/contrast-audit.js` | Dev-only WCAG contrast audit you can load into a page (not published) |
+
+To change a toolkit page, edit `scripts/gen_toolkit_pages.py` and run `python scripts/gen_toolkit_pages.py`
+(the pages are committed as plain HTML, so the site itself still has no build step).
 
 ## Preview locally
 
@@ -60,7 +94,8 @@ Open http://localhost:8765. To run the tests, serve the repo root instead
 (`python -m http.server 8765`) and open http://localhost:8765/tests/lookups-test.html or
 http://localhost:8765/tests/kit-test.html; each page prints PASS/FAIL for every check. Browsers
 cache scripts aggressively while you work, so use a server that sends `Cache-Control: no-store`
-or hard-reload before trusting a result.
+or hard-reload before trusting a result. Opening the same URL again does not reload the page;
+use Reload.
 
 ## Rule tuner guardrails
 
