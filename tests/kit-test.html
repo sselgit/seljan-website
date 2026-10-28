@@ -687,6 +687,8 @@
   eq("gather rejects when nothing answers", await NLx.gatherReport("x.com", allFail).then(function () { return "resolved"; }, function (e) { return /Could not reach/.test(e.userMessage); }), true);
   var nx = await NLx.gatherReport("gone.com", { query: fakeQuery({ "gone.com|2": { rcode: 3 }, "gone.com|1": { rcode: 3 } }) });
   eq("gather reports NXDOMAIN", nx.rcode, 3);
+  var repNoMail = await NLx.gatherReport("x.com", { query: fakeQuery(Object.assign({}, zone, { "_dmarc.x.com|16": { rcode: 3 }, "_mta-sts.x.com|16": { rcode: 3 } })) });
+  eq("a domain with no DMARC or MTA-STS name still exists", [repNoMail.rcode, lv(NLx.analyzeReport(repNoMail), "error")], [0, []]);
 
   var sec = {
     "x.com|43": { answers: ["12345 13 2 ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789"] },

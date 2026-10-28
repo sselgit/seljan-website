@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.6.1 - 2026-10-28
+
+- Fixed: the DNS report said "This domain does not exist" for most real domains. A missing `_dmarc` or `_mta-sts`
+  name (normal, and correctly NXDOMAIN) was being counted as the whole domain not existing. Only the domain's own
+  records decide that now. Added a regression test (kit-test.html, 506 checks).
+
 ## 1.6.0 - 2026-10-28
 
 - Both tuners now suggest MITRE ATT&CK techniques for the rule being created or tuned (ATT&CK v20 IDs, with
