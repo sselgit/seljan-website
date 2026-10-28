@@ -305,8 +305,9 @@
 
   // ---- source checks --------------------------------------------------------
 
-  function chk(id, name, source, href, run) {
-    return { id: id, name: name, source: source, href: href || "", run: run };
+  // hrefLabel: optional button text when the link isn't simply "the source's own page".
+  function chk(id, name, source, href, run, hrefLabel) {
+    return { id: id, name: name, source: source, href: href || "", hrefLabel: hrefLabel || "", run: run };
   }
 
   function otxCheck(id, name, path, href) {
@@ -400,12 +401,15 @@
     var h = hash.toLowerCase();
     var supported = /^[a-f0-9]{32}$/.test(h) || /^[a-f0-9]{40}$/.test(h);
     return [
-      chk("mhr", "Team Cymru malware hash registry", supported ? "dns.google (DNS lookup)" : "", "", function () {
-        if (!supported) {
-          return Promise.resolve(R("skip", "This registry only takes MD5 or SHA-1. Try the MD5 or SHA-1 of the same file."));
-        }
-        return doh("google", h + ".malware.hash.cymru.com", "TXT").then(evalMhr);
-      }),
+      // Team Cymru's registry is a DNS service with no web page per hash, so the link goes to
+      // VirusTotal's page for the same file, labelled as such.
+      chk("mhr", "Team Cymru malware hash registry", supported ? "dns.google (DNS lookup)" : "",
+        "https://www.virustotal.com/gui/file/" + enc(h), function () {
+          if (!supported) {
+            return Promise.resolve(R("skip", "This registry only takes MD5 or SHA-1. Try the MD5 or SHA-1 of the same file."));
+          }
+          return doh("google", h + ".malware.hash.cymru.com", "TXT").then(evalMhr);
+        }, "Verify on VirusTotal"),
       otxCheck("otx", "AlienVault OTX", "file/" + enc(h), "https://otx.alienvault.com/indicator/file/" + enc(h))
     ];
   }

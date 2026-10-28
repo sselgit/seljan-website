@@ -169,8 +169,8 @@
       var a = document.createElement("a");
       a.className = "chk-link";
       a.href = check.href; a.target = "_blank"; a.rel = "noopener noreferrer";
-      a.textContent = "Open";
-      a.setAttribute("aria-label", "Open " + check.name + " in a new tab");
+      a.textContent = check.hrefLabel || "Open";
+      a.setAttribute("aria-label", (check.hrefLabel || ("Open " + check.name)) + " (opens in a new tab)");
       li.appendChild(a);
     }
   }
