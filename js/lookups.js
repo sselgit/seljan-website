@@ -1,4 +1,4 @@
-/* Seljan Security tool stack: automatic lookups.
+/* SOC Analyst Toolkit: automatic lookups.
  *
  * Given an indicator (IP, domain, URL, file hash, or email address), query the free public
  * sources that allow browser requests and report which ones have a hit. Requests go straight

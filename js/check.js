@@ -1,4 +1,4 @@
-/* Seljan Security email checker.
+/* SOC Analyst Toolkit email checker.
  *
  * Runs entirely in the browser. It parses a pasted or uploaded email, extracts
  * signals (sender, reply-to, authentication results, links, attachments) and
