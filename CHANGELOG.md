@@ -1,5 +1,34 @@
 # Changelog
 
+## 1.3.0 (2026-10-27)
+
+- New analyst toolkit (`toolkit.html`) with 10 tools, all client-side and all blocked from making
+  network requests (`connect-src 'none'`), no cookies, no storage:
+  - Decoder: Base64/Base64url, hex, URL, HTML entities, escapes, charcodes, binary, decimal, ROT13,
+    reversal, XOR (single byte with optional known text, or your own key), gzip/zlib after Base64,
+    automatic layer peeling, UTF-16LE detection (PowerShell -EncodedCommand), hexdump, strings, and
+    file signature detection
+  - Indicators: defang, refang and extract (URLs, IPv4/IPv6, domains, emails, hashes, CVE and ATT&CK
+    IDs) with CSV export and a warning for non-public addresses
+  - Timestamps: Unix (s/ms/us/ns), Windows FILETIME, Chrome/WebKit, .NET ticks, Cocoa, Excel serials,
+    ISO 8601, Apache, RFC 2822 and syslog text, time zones, all-formats table, time between events
+  - IP and CIDR: subnet calculator, range membership, public/private classification (IPv4 and IPv6),
+    range to CIDR, subnet splitting, IPv6 compress and expand
+  - Hashes and files: hash identification, local MD5/SHA-1/SHA-256/SHA-512/CRC-32 of text or a file
+    (up to 256 MB), expected-hash comparison, file type versus extension check
+  - Hypothesis worksheet (simplified analysis of competing hypotheses) with Markdown and JSON export
+  - Phishing triage with a rough score, next steps by impact, and a ticket note
+  - Incident note builder with defanged indicators
+  - Reference: Windows Security/System/PowerShell/Sysmon event IDs, logon types, programs to watch,
+    ICD 203 estimative language, HTTP status codes
+  - Rule tuner: paste an alert, rule and logs; get narrow exclusion candidates for YARA-L, Sigma,
+    Splunk, Kusto, regex or plain language, with guardrails (see README)
+- Analyst toolkit linked from the Tool Stack page and the Email Checker
+- Browser tests for the toolkit (`tests/kit-test.html`, 253 checks), mutation-checked by deliberately
+  breaking sanitizing, risk flags, MD5 and defang logic and confirming the tests fail
+- Contrast audit across all toolkit pages and states: no text below WCAG AA; phone-width layouts
+  checked for horizontal overflow
+
 ## 1.2.0 (2026-10-27)
 
 - Dark theme for the whole site (tool stack and email checker): dark navy surfaces, light text,

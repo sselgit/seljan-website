@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en" class="no-js">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <title>Rule Tuner | Seljan Security</title>
+  <meta name="description" content="Paste an alert, its rule and sample logs, and get narrow, guard-railed exclusion suggestions for YARA-L, Sigma, Splunk, Kusto or regex.">
+  <meta name="theme-color" content="#0B1426">
+  <meta name="color-scheme" content="dark">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="css/tools.css">
+  <link rel="stylesheet" href="css/toolkit.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="index.html" aria-label="Seljan Security home">
+        <img src="assets/logo/logo-icon.svg" alt="" width="52" height="52">
+        <span class="brand-text">Seljan <em>Security</em></span>
+      </a>
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">
+        <span class="sr-only">Menu</span>
+        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+      <nav id="site-nav" class="site-nav" aria-label="Main">
+        <a href="index.html#pivot">IOC pivot</a>
+        <a href="index.html#directory">Tool directory</a>
+        <a href="index.html#ports">Port reference</a>
+        <a href="check.html">Email checker</a>
+        <a href="toolkit.html" class="btn btn-small">Analyst toolkit</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="kit-nav">
+    <nav class="container kit-nav-inner" aria-label="Analyst toolkit">
+        <a href="toolkit.html">All tools</a>
+        <a href="tuner.html" aria-current="page">Rule tuner</a>
+        <a href="decode.html">Decoder</a>
+        <a href="ioc.html">Indicators</a>
+        <a href="time.html">Timestamps</a>
+        <a href="network.html">IP and CIDR</a>
+        <a href="hash.html">Hashes and files</a>
+        <a href="hypothesis.html">Hypotheses</a>
+        <a href="triage.html">Phishing triage</a>
+        <a href="report.html">Incident note</a>
+        <a href="reference.html">Reference</a>
+    </nav>
+  </div>
+
+  <main id="main">
+    <section class="section kit-hero">
+      <div class="container">
+        <div class="section-head">
+          <p class="eyebrow">Rule tuner</p>
+          <h1>Cut the noise without cutting the coverage</h1>
+          <p>Paste a noisy alert, the rule behind it and some of the logs. We look for a narrow, defensible exclusion, show what it would hide, and refuse to hide anything that looks like an attack.</p>
+        </div>
+        <div class="kit-wrap">
+<p class="kit-privacy"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 4v5c0 5-3.5 7.5-8 9-4.5-1.5-8-4-8-9V7z"/><path d="M9 12l2 2 4-4"/></svg><span><strong>Runs only in your browser.</strong> What you paste or load here is never uploaded, saved, or sent anywhere. This page cannot make network requests at all, and it uses no cookies or storage. Reloading or closing the tab clears everything.</span></p>
+          <div class="kit-callout warn">
+            <p><strong>Read this first.</strong></p>
+            <ul>
+              <li><strong>Your logs stay in your browser,</strong> but they can still contain sensitive details. Use <em>Replace my identifying values</em> below. It swaps IP addresses for generic ones
+                (like 192.0.2.1), emails for example.com and user folder names for USER1. Put your own values back before you use a rule.</li>
+              <li><strong>Tuning is not the same as fixing.</strong> Only exclude activity after you have searched historical data and confirmed what causes it. Rule text stays locked until you confirm that.</li>
+              <li><strong>Some activity must never be excluded,</strong> for example an Office program starting PowerShell. These are flagged and locked. See the examples at the bottom of the page.</li>
+              <li><strong>This is a helper, not a judge.</strong> It finds patterns in the sample you give it. A person has to check the result and test it.</li>
+            </ul>
+          </div>
+
+          <div class="kit-panel">
+            <h2>1. Choose your rule format</h2>
+            <label class="kit-label" for="tn-format">What does your detection platform use?</label>
+            <select id="tn-format" class="kit"><option value="">Choose a format...</option></select>
+            <p class="kit-note">Suggestions are written in this format. If yours is not listed, pick "Other" and translate the plain-language conditions.</p>
+          </div>
+
+          <div class="kit-panel">
+            <h2>2. Paste what you have</h2>
+            <label class="kit-label" for="tn-alert">The alert <small>(optional: title, severity, counts)</small></label>
+            <textarea id="tn-alert" class="kit wrap" rows="3" spellcheck="false"></textarea>
+            <label class="kit-label" for="tn-rule">The rule <small>(optional but helpful)</small></label>
+            <textarea id="tn-rule" class="kit" rows="8" spellcheck="false"></textarea>
+            <label class="kit-label" for="tn-logs">Log events that triggered it <small>(JSON, JSON lines, key=value, CSV, Event Viewer text, or one line per event)</small></label>
+            <textarea id="tn-logs" class="kit tall" spellcheck="false"></textarea>
+            <div class="kit-row">
+              <button type="button" id="tn-sample" class="btn btn-ghost">Load a sample</button>
+              <button type="button" id="tn-clear" class="btn btn-ghost">Clear everything</button>
+            </div>
+          </div>
+
+          <div class="kit-panel">
+            <h2>3. Replace my identifying values</h2>
+            <p class="sub">Recommended before you share a screen or copy any output. Everything happens in this page.</p>
+            <label class="kit-check"><input type="checkbox" id="tn-san-ips" checked> Replace IP addresses with generic ones (192.0.2.x, 198.51.100.x, 2001:db8::x)</label>
+            <label class="kit-check"><input type="checkbox" id="tn-san-emails" checked> Replace email addresses</label>
+            <label class="kit-check"><input type="checkbox" id="tn-san-users" checked> Replace user folder names (C:\Users\name becomes USER1, also elsewhere in the text)</label>
+            <label class="kit-label" for="tn-san-terms">Anything else to replace <small>(host names, company names, one per line)</small></label>
+            <textarea id="tn-san-terms" class="kit wrap" rows="3" spellcheck="false"></textarea>
+            <div class="kit-row"><button type="button" id="tn-san-run" class="btn">Replace in the boxes above</button></div>
+            <div id="tn-san-out"></div>
+            <p class="kit-note">Version-like numbers such as 1.2.3.4 can look like IP addresses and get replaced. Check the result looks right.</p>
+          </div>
+
+          <div class="kit-panel">
+            <h2>4. Analyze</h2>
+            <div class="kit-row"><button type="button" id="tn-run" class="btn">Find safe exclusions</button></div>
+          </div>
+
+          <div id="tn-results" hidden></div>
+
+          <div class="kit-panel">
+            <h2>When activity is abnormal</h2>
+            <p class="sub">These patterns are the ones attackers rely on. They should be investigated, not tuned away.</p>
+            <div id="tn-abnormal"></div>
+          </div>
+          <div class="kit-panel">
+            <h2>When tuning is usually reasonable</h2>
+            <p class="sub">Even then, check the history and keep the exclusion narrow.</p>
+            <div id="tn-routine"></div>
+          </div>
+          <div class="kit-panel">
+            <h2>How to do the historical check</h2>
+            <div id="tn-historical"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <img src="assets/logo/logo-full-white.svg" alt="Seljan Security" width="220" height="47">
+        <p>A free security tool stack.</p>
+      </div>
+      <div class="footer-links">
+        <a href="index.html">Tool stack</a>
+        <a href="toolkit.html">Analyst toolkit</a>
+        <a href="tuner.html">Rule tuner</a>
+        <a href="check.html">Email checker</a>
+      </div>
+      <div class="footer-legal">
+        <p>&copy; 2026 Seljan Security.</p>
+        <p><strong>Privacy:</strong> the analyst toolkit runs only in your browser. These pages are blocked from
+          making network requests, and nothing you paste or load is received, stored, or sent by us.</p>
+      </div>
+    </div>
+  </footer>
+
+  <script src="js/main.js" defer></script>
+  <script src="js/kit.js" defer></script>
+  <script src="js/network.js" defer></script>
+  <script src="js/tuner-data.js" defer></script>
+  <script src="js/tuner-core.js" defer></script>
+  <script src="js/tuner.js" defer></script>
+</body>
+</html>
