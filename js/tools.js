@@ -233,6 +233,13 @@
     });
   }
 
+  // Auto-detect: list the toolkit tools that can handle what was typed. Reads text only; nothing is looked up.
+  function showRoutes(value) {
+    var kit = byId("kit-routes");
+    if (!kit || !window.SKRoute) return;
+    window.SKRoute.render(kit, value ? window.SKRoute.detect(value) : [], { skip: ["pivot"] });
+  }
+
   function runPivot() {
     var raw = document.getElementById("ioc-input").value;
     var cleaned = refang(raw);
@@ -245,12 +252,20 @@
     lastIndicator = null;
 
     if (!cleaned) {
-      typeEl.hidden = true; linksEl.innerHTML = ""; labelEl.hidden = true; return;
+      typeEl.hidden = true; linksEl.innerHTML = ""; labelEl.hidden = true; showRoutes(""); return;
     }
+    showRoutes(cleaned);
     if (type === "unknown") {
+      // Not something the reputation sources handle, but one of our other tools may (MAC address, AS number, encoded text...).
+      var routes = window.SKRoute ? window.SKRoute.detect(cleaned) : [];
       typeEl.hidden = false;
-      typeEl.className = "ioc-type unknown";
-      typeEl.textContent = "Couldn't recognize that as an IP, domain, URL, or hash. Check for typos.";
+      if (routes.length) {
+        typeEl.className = "ioc-type";
+        typeEl.textContent = "Not an IP, domain, URL or hash, but it looks like: " + routes[0].label + ". Open it in one of our tools below.";
+      } else {
+        typeEl.className = "ioc-type unknown";
+        typeEl.textContent = "Couldn't recognize that as an IP, domain, URL, hash, or anything our tools handle. Check for typos.";
+      }
       linksEl.innerHTML = "";
       labelEl.hidden = true;
       return;
@@ -388,6 +403,13 @@
     document.getElementById("ioc-input").addEventListener("keydown", function (e) {
       if (e.key === "Enter") { e.preventDefault(); runPivot(); }
     });
+    // As you type or paste, show which of our tools fit (no lookup happens until Pivot or Enter).
+    var routeTimer = null;
+    document.getElementById("ioc-input").addEventListener("input", function () {
+      clearTimeout(routeTimer);
+      var v = this.value;
+      routeTimer = setTimeout(function () { showRoutes(window.SKRoute ? window.SKRoute.refang(v) : v.trim()); }, 200);
+    });
 
     var toggle = byId("auto-toggle");
     toggle.checked = autoEnabled();
@@ -404,6 +426,19 @@
     var portInput = document.getElementById("port-input");
     portInput.addEventListener("input", function () { renderPorts(portInput.value); });
     renderPorts("");
+
+    // Arriving from a toolkit link (#q=...): fill the box and run the pivot (auto-check still obeys its checkbox).
+    var m = /(?:^#|&)q=([^&]*)/.exec(location.hash || "");
+    if (m) {
+      var v;
+      try { v = decodeURIComponent(m[1]); } catch (e) { v = ""; }
+      if (v) {
+        document.getElementById("ioc-input").value = v;
+        runPivot();
+        var sec = byId("pivot");
+        if (sec && sec.scrollIntoView) sec.scrollIntoView();
+      }
+    }
   }
 
   if (document.readyState === "loading") {

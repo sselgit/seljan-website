@@ -257,6 +257,10 @@
       out.appendChild(SK.el('div', { className: 'kit-out', text: 'A: ' + new Date(a.ms).toISOString() + '\nB: ' + new Date(b.ms).toISOString() + '\n\nDifference: ' + T.duration(a.ms, b.ms) + (b.ms >= a.ms ? '  (B is later)' : '  (A is later)') }));
     }
     SK.$('diff-run').addEventListener('click', diff);
+
+    // Arriving from the search box: fill in and convert (this tool works offline).
+    var hq = SK.hashQuery();
+    if (hq.q) { input.value = hq.q; render(); }
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

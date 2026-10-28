@@ -150,6 +150,8 @@
       if (!shown) host.appendChild(SK.el('div', { className: 'kit-callout warn' }, [SK.el('p', { text: 'Nothing matches "' + q + '".' })]));
     }
     query.addEventListener('input', render);
+    var hq = SK.hashQuery();
+    if (hq.q) query.value = hq.q;
     render();
   }
 

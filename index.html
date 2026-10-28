@@ -72,6 +72,7 @@
             <button type="button" id="ioc-btn" class="btn">Pivot</button>
           </div>
           <p id="ioc-type" class="ioc-type" hidden></p>
+          <div id="kit-routes" class="kit-routes" hidden></div>
 
           <div class="auto-bar">
             <label class="auto-toggle">
@@ -132,8 +133,10 @@
           <p class="eyebrow">Analyst toolkit</p>
           <h2>Tools for the work between the alert and the answer</h2>
           <p>Decode strings, defang and extract indicators, convert timestamps, do network math, weigh competing
-            explanations, and tune a noisy detection rule with guardrails. Everything runs in your browser and the
-            pages are blocked from making network requests.</p>
+            explanations, tune a noisy detection rule with guardrails, and look up DNS, WHOIS, DNSSEC, abuse
+            contacts and ASNs. The search box above recognizes what you paste (an address, domain, MAC address, AS
+            number, encoded text and more) and lists every tool that fits. Everything runs in your browser; the
+            offline tools are blocked from making any network request.</p>
         </div>
         <div class="center-cta">
           <a class="btn" href="toolkit.html">Open the toolkit</a>
@@ -182,6 +185,7 @@
 
   <script src="js/main.js" defer></script>
   <script src="js/lookups.js" defer></script>
+  <script src="js/router.js" defer></script>
   <script src="js/tools.js" defer></script>
 </body>
 </html>

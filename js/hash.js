@@ -219,6 +219,13 @@
         else SK.$('hash-text-run').click();
       }
     });
+
+    // Arriving from the search box: identify a hash, or hash the text (these tools work offline).
+    var hq = SK.hashQuery();
+    if (hq.q) {
+      if (hq.k === 'hash') { SK.$('hash-id-in').value = hq.q; SK.$('hash-id-run').click(); }
+      else { SK.$('hash-text').value = hq.q; SK.$('hash-text-run').click(); }
+    }
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
