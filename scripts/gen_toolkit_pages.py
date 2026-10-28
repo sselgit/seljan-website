@@ -642,7 +642,7 @@ write("tuner.html", page(
             <h2>How to do the historical check</h2>
             <div id="tn-historical"></div>
           </div>""",
-    ["network.js", "tuner-data.js", "tuner-core.js", "tuner.js"]))
+    ["network.js", "attack-map.js", "attack-ui.js", "tuner-data.js", "tuner-core.js", "tuner.js"]))
 
 # ------------------------------------------------------------------ Snort/Suricata tuner
 write("ids.html", page(
@@ -721,7 +721,7 @@ write("ids.html", page(
             <h2>How to do the historical check</h2>
             <div id="ids-historical"></div>
           </div>""",
-    ["network.js", "pcap.js", "pcap-build.js", "ids-engine.js", "ids-tune.js", "ids-data.js", "ids-tuner.js"]))
+    ["network.js", "pcap.js", "pcap-build.js", "ids-engine.js", "ids-tune.js", "ids-data.js", "attack-map.js", "attack-ui.js", "ids-tuner.js"]))
 
 # ------------------------------------------------------------------ lookup pages (use public sources)
 LOOKUP_SCRIPTS = ["network.js", "router.js", "netlookup.js", "lookup-ui.js"]

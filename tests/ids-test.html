@@ -20,6 +20,8 @@
 <script src="../site/js/ids-tune.js"></script>
 <script src="../site/js/pcap-build.js"></script>
 <script src="../site/js/ids-data.js"></script>
+<script src="../site/js/attack-map.js"></script>
+<script src="../site/js/attack-ui.js"></script>
 <script>
 (async function () {
   var SK = window.SK, P = SK.pcap, IDS = SK.ids, PB = SK.pcapBuild;
@@ -408,6 +410,22 @@
     var exAn = TU.analyze({ rule: IDS.parseRule(ex.rule, ex.engine), engine: ex.engine, fp: cfp, tp: ctp, alert: ex.alert ? TU.parseAlert(ex.alert) : null });
     truthy("example " + ex.id + ": fires on both captures and the combined rule fixes it", exAn.fp.alerts > 0 && exAn.tp.alerts > 0 && exAn.combined && exAn.combined.effect.fpAfter === 0 && exAn.combined.effect.keepsTp === true, JSON.stringify(exAn.fp) + JSON.stringify(exAn.tp));
   }
+
+  // ================= MITRE ATT&CK suggestions =================
+  function ids(t, o) { return SK.attack.suggest(t, o).map(function (x) { return x.id; }); }
+  truthy("attack: PowerShell encoded command", ids("Suspicious powershell -enc download").indexOf("T1059.001") >= 0 && ids("powershell -enc x").indexOf("T1027") >= 0, JSON.stringify(ids("powershell -enc x")));
+  truthy("attack: Office spawning a shell", ids("Word spawns cmd.exe from macro").indexOf("T1204.002") >= 0, "");
+  truthy("attack: LSASS dump", ids("procdump of lsass.exe")[0] === "T1003.001", JSON.stringify(ids("procdump of lsass.exe")));
+  truthy("attack: web scanner or admin probe", ids("EXAMPLE Admin panel probe").indexOf("T1595") >= 0, JSON.stringify(ids("EXAMPLE Admin panel probe")));
+  truthy("attack: SQL injection", ids("ET WEB_SERVER SQL Injection UNION SELECT")[0] === "T1190", JSON.stringify(ids("ET WEB_SERVER SQL Injection UNION SELECT")));
+  truthy("attack: classtype adds a hint", ids("some rule", { classtype: "network-scan" }).indexOf("T1046") >= 0, "");
+  eq("attack: ordinary words do not match (source, security, operate)", ids("source of the security operate separate"), []);
+  eq("attack: a sub-technique replaces its parent", ids("powershell").indexOf("T1059"), -1);
+  var logs = SK.attack.suggest("wevtutil cl security")[0];
+  eq("attack: renumbered ID shows the old one", [logs.id, logs.oldId], ["T1685.005", "T1070.001"]);
+  truthy("attack: link goes to attack.mitre.org with sub-technique path", /^https:\/\/attack\.mitre\.org\/techniques\/T1059\/001\/$/.test(SK.attack.suggest("powershell")[0].url), SK.attack.suggest("powershell")[0].url);
+  truthy("attack: panel renders text without markup injection", (function () { var el = SK.attackPanel("<img src=x onerror=1> powershell", {}); return el.querySelectorAll("img").length === 0 && /T1059/.test(el.textContent); })(), "");
+  truthy("attack: every technique in the table has a name and a tactic", Object.keys(SK.attack.TECH).every(function (k) { return SK.attack.TECH[k].n && SK.attack.TECH[k].t.length; }), "");
 
   // ================= scenario G: the rule does not fire =================
   var anG = TU.analyze({ rule: IDS.parseRule('alert tcp any any -> any 80 (msg:"x"; content:"zzzqqq"; sid:8;)'), engine: "suricata", fp: fpA, tp: null });

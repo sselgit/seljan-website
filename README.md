@@ -1,6 +1,6 @@
 # Seljan Security Tool Stack
 
-Version: 1.5.0
+Version: 1.6.0
 
 Free, browser-based security helpers served at https://seljan.net:
 
@@ -76,6 +76,7 @@ browser cannot do them, and a scanner run from this site could be abused.
 | `site/toolkit.html` and the other toolkit pages | One HTML page per tool, shared `css/toolkit.css` and `js/kit.js` |
 | `site/js/tuner-core.js`, `tuner-data.js` | Rule tuner engine and teaching content |
 | `site/js/pcap.js`, `ids-engine.js`, `ids-tune.js`, `ids-data.js`, `ids-tuner.js`, `pcap-build.js` | Snort/Suricata tuner: capture reader and TCP reassembly, rule parser and match simulator, recommendation engine, teaching content, page, and the builder that makes the example captures |
+| `site/js/attack-map.js` (generated), `attack-ui.js` | MITRE ATT&CK suggestions for a rule, shown on both tuners. Rebuild with `scripts/build_attack_map.py` (reads MITRE's public ATT&CK data and refuses IDs that are revoked) |
 | `site/data/oui.json` | MAC vendor list built from the IEEE public registries |
 | `scripts/gen_toolkit_pages.py` | Regenerates the toolkit HTML pages (the Content-Security-Policy for each page is built here) |
 | `scripts/probe_rdap_hosts.py` | Refreshes `scripts/rdap-cors-hosts.json`, the registries allowed in the WHOIS pages' policy |
@@ -127,3 +128,11 @@ The rule tuner is a helper, not a judge. By design it:
   true-positive capture still alerts. With no true-positive capture, nothing is marked verified.
 - Rule text stays locked behind the same historical-check checklist as the rule tuner. Suppressions and
   negated contents are flagged high risk. IP addresses in the results are masked unless the user unticks it.
+
+## MITRE ATT&CK suggestions
+
+Both tuners suggest ATT&CK techniques from the rule name, its contents, the alert text and (for Snort/Suricata)
+the classtype. It is keyword matching with a hand-written table of about 60 rules, so each suggestion is labeled
+"good match", "possible match" or "weak hint" and must be confirmed by the analyst. Names and IDs come from
+ATT&CK Enterprise v20 and are checked at build time; where v20 renumbered a technique the old ID is shown too.
+ATT&CK(R) is a registered trademark of The MITRE Corporation; see https://attack.mitre.org/resources/terms-of-use/.

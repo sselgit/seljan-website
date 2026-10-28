@@ -126,6 +126,11 @@
         out.appendChild(det);
       }
 
+      // MITRE ATT&CK: what the rule text, the alert and any flagged risks point to
+      var attText = SK.$('tn-rule').value + ' ' + SK.$('tn-alert').value + ' ' + an.flagged.map(function (f) { return f.risk.title; }).join(' ');
+      var attPanel = SK.attackPanel ? SK.attackPanel(attText, {}) : null;
+      if (attPanel) out.appendChild(attPanel);
+
       // Candidates
       out.appendChild(SK.el('h2', { text: 'Candidate exclusions' }));
       out.appendChild(para('Each entry hides only events that match all of its conditions. Narrower entries are safer. Entries that would hide risky events are locked.'));

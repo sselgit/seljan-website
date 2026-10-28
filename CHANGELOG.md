@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.6.0 - 2026-10-28
+
+- Both tuners now suggest MITRE ATT&CK techniques for the rule being created or tuned (ATT&CK v20 IDs, with
+  the older ID shown where v20 renumbered one), with a confidence label and the reason for each.
+- New `scripts/build_attack_map.py` generates `site/js/attack-map.js` and fails on revoked or mistyped IDs.
+- 12 more checks in `tests/ids-test.html` (227 total).
+
 ## 1.5.0 - 2026-10-28
 
 - New Snort/Suricata tuner (`ids.html`): PCAP and PCAPNG reader with TCP reassembly, rule parser and match
