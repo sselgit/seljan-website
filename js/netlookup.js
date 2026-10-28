@@ -662,7 +662,8 @@
       if (all.every(function (x) { return x.error; })) throw fail('Could not reach the DNS resolver. ' + NL.friendlyError(all[0].error));
       var d = {
         name: name, resolver: resolver,
-        rcode: all.some(function (x) { return !x.error && x.rcode === 3; }) ? 3 : 0,
+        // Only the domain's own records decide this. Most domains have no _dmarc or _mta-sts name, and those correctly answer NXDOMAIN.
+        rcode: all.slice(0, 8).some(function (x) { return !x.error && x.rcode === 3; }) ? 3 : 0,
         ns: lowerList(dataList(r[0], T.NS)), soa: dataList(r[1], T.SOA)[0] || '', a: dataList(r[2], T.A), aaaa: dataList(r[3], T.AAAA), cname: dataList(r[4], T.CNAME),
         mx: dataList(r[5], T.MX), txt: dataList(r[6], T.TXT), caa: dataList(r[7], T.CAA), dmarc: dataList(r[8], T.TXT), mtasts: dataList(r[9], T.TXT).filter(function (t) { return /v=STSv1/i.test(t); }),
         dnssec: r[10], errors: []
