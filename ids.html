@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en" class="no-js">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <title>Snort and Suricata Tuner | Seljan Security</title>
+  <meta name="description" content="Load the packet captures and the rule, and get offset, depth, distance, within and buffer recommendations checked against your traffic, for Suricata and Snort.">
+  <meta name="theme-color" content="#0B1426">
+  <meta name="color-scheme" content="dark">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="css/tools.css">
+  <link rel="stylesheet" href="css/toolkit.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="index.html" aria-label="Seljan Security home">
+        <img src="assets/logo/logo-icon.svg" alt="" width="52" height="52">
+        <span class="brand-text">Seljan <em>Security</em></span>
+      </a>
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">
+        <span class="sr-only">Menu</span>
+        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+      <nav id="site-nav" class="site-nav" aria-label="Main">
+        <a href="index.html#pivot">IOC pivot</a>
+        <a href="index.html#directory">Tool directory</a>
+        <a href="index.html#ports">Port reference</a>
+        <a href="check.html">Email checker</a>
+        <a href="toolkit.html" class="btn btn-small">Analyst toolkit</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="kit-nav">
+    <nav class="container kit-nav-inner" aria-label="Analyst toolkit">
+        <a href="toolkit.html">All tools</a>
+        <a href="tuner.html">Rule tuner</a>
+        <a href="ids.html" aria-current="page">Snort/Suricata</a>
+        <a href="decode.html">Decoder</a>
+        <a href="ioc.html">Indicators</a>
+        <a href="time.html">Timestamps</a>
+        <a href="network.html">IP and CIDR</a>
+        <a href="hash.html">Hashes and files</a>
+        <a href="hypothesis.html">Hypotheses</a>
+        <a href="triage.html">Phishing triage</a>
+        <a href="report.html">Incident note</a>
+        <a href="reference.html">Reference</a>
+        <a href="dns.html">DNS records</a>
+        <a href="dnsreport.html">DNS report</a>
+        <a href="dnssec.html">DNSSEC</a>
+        <a href="propagation.html">Propagation</a>
+        <a href="reverse.html">Reverse DNS</a>
+        <a href="whois.html">WHOIS</a>
+        <a href="abuse.html">Abuse</a>
+        <a href="asn.html">ASN</a>
+        <a href="mac.html">MAC vendor</a>
+        <a href="freemail.html">Free email</a>
+    </nav>
+  </div>
+
+  <main id="main">
+    <section class="section kit-hero">
+      <div class="container">
+        <div class="section-head">
+          <p class="eyebrow">Snort/Suricata tuner</p>
+          <h1>Tune a rule with the traffic in hand</h1>
+          <p>Load a capture of the false positive, optionally a capture of the real activity, and the rule. We show why it fired, where the strings sit, and the narrowest rule change that fixes it, re-checked against both captures.</p>
+        </div>
+        <div class="kit-wrap">
+<p class="kit-privacy"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 4v5c0 5-3.5 7.5-8 9-4.5-1.5-8-4-8-9V7z"/><path d="M9 12l2 2 4-4"/></svg><span><strong>Runs only in your browser.</strong> What you paste or load here is never uploaded, saved, or sent anywhere. This page cannot make network requests at all, and it uses no cookies or storage. Reloading or closing the tab clears everything.</span></p>
+          <div class="kit-callout warn">
+            <p><strong>Read this first.</strong></p>
+            <ul>
+              <li><strong>Your captures stay in your browser.</strong> They are read here and never uploaded. They can still contain sensitive data, so use the address masking below before you share a screen or copy any text.</li>
+              <li><strong>The numbers come from a simulation.</strong> It follows Suricata and Snort matching rules for the options it supports and says when it has to guess. The engine is the final judge: the page gives you the command to check every change.</li>
+              <li><strong>Tuning is not the same as fixing.</strong> Only change a rule after you have checked the history and know what causes the alert. Rule text stays locked until you confirm that.</li>
+              <li><strong>A tuned rule can be dodged.</strong> The narrower the window, the easier it is to move an attack outside it. Each suggestion shows its risk.</li>
+            </ul>
+          </div>
+
+          <div class="kit-panel">
+            <h2>1. Your engine and rule</h2>
+            <label class="kit-label" for="ids-engine">Which engine runs the rule?</label>
+            <select id="ids-engine" class="kit">
+              <option value="">Choose an engine...</option>
+              <option value="suricata">Suricata 6 or 7</option>
+              <option value="snort3">Snort 3</option>
+              <option value="snort2">Snort 2</option>
+            </select>
+            <label class="kit-label" for="ids-rule">The rule that fired</label>
+            <textarea id="ids-rule" class="kit" rows="5" spellcheck="false"></textarea>
+            <label class="kit-label" for="ids-alert">The alert <small>(optional: Suricata EVE JSON or fast.log, or Snort alert_fast)</small></label>
+            <textarea id="ids-alert" class="kit" rows="3" spellcheck="false"></textarea>
+          </div>
+
+          <div class="kit-panel">
+            <h2>2. Your captures</h2>
+            <label class="kit-label" for="ids-fp-file">False-positive capture <small>(required: traffic that should not have alerted. .pcap, .pcapng or .gz)</small></label>
+            <input type="file" id="ids-fp-file" class="kit" accept=".pcap,.pcapng,.cap,.gz">
+            <div id="ids-fp-info" class="kit-note"></div>
+            <label class="kit-label" for="ids-tp-file">True-positive capture <small>(optional but strongly recommended: the real activity the rule must keep catching)</small></label>
+            <input type="file" id="ids-tp-file" class="kit" accept=".pcap,.pcapng,.cap,.gz">
+            <div id="ids-tp-info" class="kit-note"></div>
+            <p class="kit-note">Without a true-positive capture the page can only describe what matched. It cannot prove a change keeps detecting the attack.</p>
+          </div>
+
+          <div class="kit-panel">
+            <h2>3. Hide real addresses</h2>
+            <label class="kit-check"><input type="checkbox" id="ids-mask" checked> Replace IP addresses in the results with generic ones (192.0.2.x, 2001:db8::x). Untick to see your real addresses.</label>
+          </div>
+
+          <div class="kit-panel">
+            <h2>4. Analyze</h2>
+            <div class="kit-row">
+              <button type="button" id="ids-run" class="btn">Find the right offset, depth and distance</button>
+              <button type="button" id="ids-clear" class="btn btn-ghost">Clear everything</button>
+            </div>
+            <p class="sub">Or try an example (it builds a small capture in this page):</p>
+            <div class="kit-row" id="ids-examples"></div>
+            <p class="kit-note" id="ids-example-note"></p>
+          </div>
+
+          <div id="ids-results" hidden></div>
+
+          <div class="kit-panel">
+            <h2>What offset, depth, distance and within mean</h2>
+            <div id="ids-cheat"></div>
+          </div>
+          <div class="kit-panel">
+            <h2>When network activity is abnormal</h2>
+            <p class="sub">These patterns deserve investigation, not tuning.</p>
+            <div id="ids-abnormal"></div>
+          </div>
+          <div class="kit-panel">
+            <h2>When tuning is usually reasonable</h2>
+            <div id="ids-routine"></div>
+          </div>
+          <div class="kit-panel">
+            <h2>How to do the historical check</h2>
+            <div id="ids-historical"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <img src="assets/logo/logo-full-white.svg" alt="Seljan Security" width="220" height="47">
+        <p>A free security tool stack.</p>
+      </div>
+      <div class="footer-links">
+        <a href="index.html">Tool stack</a>
+        <a href="toolkit.html">Analyst toolkit</a>
+        <a href="tuner.html">Rule tuner</a>
+        <a href="check.html">Email checker</a>
+      </div>
+      <div class="footer-legal">
+        <p>&copy; 2026 Seljan Security.</p>
+        <p><strong>Privacy:</strong> the analyst toolkit runs in your browser. The offline tools are blocked from
+          making any network request. The lookup tools ask the public sources named on each page, directly from your
+          browser and only when you press the button. We never receive, store or relay what you type or load.</p>
+      </div>
+    </div>
+  </footer>
+
+  <script src="js/main.js" defer></script>
+  <script src="js/kit.js" defer></script>
+  <script src="js/network.js" defer></script>
+  <script src="js/pcap.js" defer></script>
+  <script src="js/pcap-build.js" defer></script>
+  <script src="js/ids-engine.js" defer></script>
+  <script src="js/ids-tune.js" defer></script>
+  <script src="js/ids-data.js" defer></script>
+  <script src="js/ids-tuner.js" defer></script>
+</body>
+</html>
