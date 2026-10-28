@@ -221,6 +221,11 @@
       if (tpTab) evp.appendChild(tpTab);
       res.appendChild(evp);
 
+      // MITRE ATT&CK
+      var ct = /classtype\s*:\s*([\w-]+)/i.exec(state.rule.raw);
+      var att = SK.attackPanel ? SK.attackPanel(state.rule.raw + ' ' + (state.alert ? state.alert.msg + ' ' + state.alert.classification : ''), { classtype: ct ? ct[1] : '' }) : null;
+      if (att) res.appendChild(att);
+
       // recommendations
       var rp = SK.el('div', { className: 'kit-panel' }, [SK.el('h2', { text: '7. Recommended changes' }),
         SK.el('p', { className: 'sub', text: 'Each change was re-run against your captures. Tick the ones you want in the tuned rule below.' })]);
