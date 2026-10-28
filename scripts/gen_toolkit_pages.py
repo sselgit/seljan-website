@@ -25,6 +25,7 @@ REGISTRIES = sorted(set(RIR + ["https://" + h for h in RDAP_HOSTS]))
 TOOLS = [
     ("toolkit.html", "All tools"),
     ("tuner.html", "Rule tuner"),
+    ("ids.html", "Snort/Suricata"),
     ("decode.html", "Decoder"),
     ("ioc.html", "Indicators"),
     ("time.html", "Timestamps"),
@@ -176,6 +177,7 @@ def write(slug, html):
 # ------------------------------------------------------------------ hub
 offline_cards = [
     ("tuner.html", "Rule tuner", "Paste an alert, its rule and sample logs. Get narrow exclusion suggestions in YARA-L, Sigma, Splunk, Kusto or regex, with guardrails.", "Featured"),
+    ("ids.html", "Snort/Suricata tuner", "Load the false-positive and true-positive captures, paste the rule and alert, and get offset, depth, distance, within and buffer recommendations checked against your traffic.", "Featured"),
     ("decode.html", "Decoder", "Base64, hex, URL, escapes, charcodes, XOR and compressed data. Peels layers automatically and inspects bytes.", ""),
     ("ioc.html", "Indicators", "Defang and refang links and addresses, and pull every indicator out of a block of text.", ""),
     ("time.html", "Timestamps", "Convert Unix, Windows FILETIME, WebKit and more. Handle log formats and time zones, and find the gap between two events.", ""),
@@ -641,6 +643,85 @@ write("tuner.html", page(
             <div id="tn-historical"></div>
           </div>""",
     ["network.js", "tuner-data.js", "tuner-core.js", "tuner.js"]))
+
+# ------------------------------------------------------------------ Snort/Suricata tuner
+write("ids.html", page(
+    "ids.html", "Snort and Suricata Tuner",
+    "Load the packet captures and the rule, and get offset, depth, distance, within and buffer recommendations checked against your traffic, for Suricata and Snort.",
+    "Snort/Suricata tuner", "Tune a rule with the traffic in hand",
+    "Load a capture of the false positive, optionally a capture of the real activity, and the rule. We show why it fired, where the strings sit, and the narrowest rule change that fixes it, re-checked against both captures.",
+"""          <div class="kit-callout warn">
+            <p><strong>Read this first.</strong></p>
+            <ul>
+              <li><strong>Your captures stay in your browser.</strong> They are read here and never uploaded. They can still contain sensitive data, so use the address masking below before you share a screen or copy any text.</li>
+              <li><strong>The numbers come from a simulation.</strong> It follows Suricata and Snort matching rules for the options it supports and says when it has to guess. The engine is the final judge: the page gives you the command to check every change.</li>
+              <li><strong>Tuning is not the same as fixing.</strong> Only change a rule after you have checked the history and know what causes the alert. Rule text stays locked until you confirm that.</li>
+              <li><strong>A tuned rule can be dodged.</strong> The narrower the window, the easier it is to move an attack outside it. Each suggestion shows its risk.</li>
+            </ul>
+          </div>
+
+          <div class="kit-panel">
+            <h2>1. Your engine and rule</h2>
+            <label class="kit-label" for="ids-engine">Which engine runs the rule?</label>
+            <select id="ids-engine" class="kit">
+              <option value="">Choose an engine...</option>
+              <option value="suricata">Suricata 6 or 7</option>
+              <option value="snort3">Snort 3</option>
+              <option value="snort2">Snort 2</option>
+            </select>
+            <label class="kit-label" for="ids-rule">The rule that fired</label>
+            <textarea id="ids-rule" class="kit" rows="5" spellcheck="false"></textarea>
+            <label class="kit-label" for="ids-alert">The alert <small>(optional: Suricata EVE JSON or fast.log, or Snort alert_fast)</small></label>
+            <textarea id="ids-alert" class="kit" rows="3" spellcheck="false"></textarea>
+          </div>
+
+          <div class="kit-panel">
+            <h2>2. Your captures</h2>
+            <label class="kit-label" for="ids-fp-file">False-positive capture <small>(required: traffic that should not have alerted. .pcap, .pcapng or .gz)</small></label>
+            <input type="file" id="ids-fp-file" class="kit" accept=".pcap,.pcapng,.cap,.gz">
+            <div id="ids-fp-info" class="kit-note"></div>
+            <label class="kit-label" for="ids-tp-file">True-positive capture <small>(optional but strongly recommended: the real activity the rule must keep catching)</small></label>
+            <input type="file" id="ids-tp-file" class="kit" accept=".pcap,.pcapng,.cap,.gz">
+            <div id="ids-tp-info" class="kit-note"></div>
+            <p class="kit-note">Without a true-positive capture the page can only describe what matched. It cannot prove a change keeps detecting the attack.</p>
+          </div>
+
+          <div class="kit-panel">
+            <h2>3. Hide real addresses</h2>
+            <label class="kit-check"><input type="checkbox" id="ids-mask" checked> Replace IP addresses in the results with generic ones (192.0.2.x, 2001:db8::x). Untick to see your real addresses.</label>
+          </div>
+
+          <div class="kit-panel">
+            <h2>4. Analyze</h2>
+            <div class="kit-row">
+              <button type="button" id="ids-run" class="btn">Find the right offset, depth and distance</button>
+              <button type="button" id="ids-clear" class="btn btn-ghost">Clear everything</button>
+            </div>
+            <p class="sub">Or try an example (it builds a small capture in this page):</p>
+            <div class="kit-row" id="ids-examples"></div>
+            <p class="kit-note" id="ids-example-note"></p>
+          </div>
+
+          <div id="ids-results" hidden></div>
+
+          <div class="kit-panel">
+            <h2>What offset, depth, distance and within mean</h2>
+            <div id="ids-cheat"></div>
+          </div>
+          <div class="kit-panel">
+            <h2>When network activity is abnormal</h2>
+            <p class="sub">These patterns deserve investigation, not tuning.</p>
+            <div id="ids-abnormal"></div>
+          </div>
+          <div class="kit-panel">
+            <h2>When tuning is usually reasonable</h2>
+            <div id="ids-routine"></div>
+          </div>
+          <div class="kit-panel">
+            <h2>How to do the historical check</h2>
+            <div id="ids-historical"></div>
+          </div>""",
+    ["network.js", "pcap.js", "pcap-build.js", "ids-engine.js", "ids-tune.js", "ids-data.js", "ids-tuner.js"]))
 
 # ------------------------------------------------------------------ lookup pages (use public sources)
 LOOKUP_SCRIPTS = ["network.js", "router.js", "netlookup.js", "lookup-ui.js"]

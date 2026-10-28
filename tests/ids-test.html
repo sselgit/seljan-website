@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Snort and Suricata tuner tests</title>
+<style>
+  body { font: 14px/1.5 ui-monospace, Consolas, monospace; margin: 24px; }
+  .pass { color: #166534; } .fail { color: #991B1B; font-weight: bold; }
+  #summary { font-size: 18px; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+<h1>Snort and Suricata tuner tests</h1>
+<div id="summary">Running...</div>
+<pre id="out"></pre>
+<script src="../site/js/kit.js"></script>
+<script src="../site/js/network.js"></script>
+<script src="../site/js/pcap.js"></script>
+<script src="../site/js/ids-engine.js"></script>
+<script src="../site/js/ids-tune.js"></script>
+<script src="../site/js/pcap-build.js"></script>
+<script src="../site/js/ids-data.js"></script>
+<script>
+(async function () {
+  var SK = window.SK, P = SK.pcap, IDS = SK.ids, PB = SK.pcapBuild;
+  var lines = [], failed = 0, passed = 0;
+  function log(ok, name, detail) {
+    if (ok) passed++; else failed++;
+    lines.push('<span class="' + (ok ? "pass" : "fail") + '">' + (ok ? "PASS " : "FAIL ") + name + (ok || !detail ? "" : "  -> " + detail) + "</span>");
+  }
+  function eq(name, actual, expected) { var a = JSON.stringify(actual), e = JSON.stringify(expected); log(a === e, name, "expected " + e + " got " + a); }
+  function truthy(name, v, detail) { log(!!v, name, detail || String(v)); }
+  var td = new TextDecoder();
+  function txt(b) { return td.decode(b); }
+  async function read(bytes) { return P.read(bytes); }
+  async function throwsMsg(fn) { try { await fn(); return "no error"; } catch (e) { return e.userMessage || e.message; } }
+
+  // A synthetic TCP session around raw payloads, for exercising rules without building packets.
+  function S(toServer, toClient, o) {
+    o = o || {};
+    var enc = new TextEncoder();
+    function dir(s) { var d = enc.encode(s || ""); return { data: d, segs: d.length ? [{ start: 0, len: d.length, ts: 1000, pkt: 0 }] : [], gaps: 0 }; }
+    return { id: 1, proto: "tcp", ipv: 4, client: o.client || { ip: "10.0.0.5", port: 40000 }, server: o.server || { ip: "192.0.2.10", port: 80 }, start: 1000, end: 2000, packets: 4, established: o.established !== false,
+      dirs: { toServer: dir(toServer), toClient: dir(toClient) }, datagrams: [] };
+  }
+  function fires(rule, toServer, toClient, o) {
+    var parsed = IDS.parseRule(rule, (o && o.engine) || "suricata");
+    return IDS.run(parsed, [S(toServer, toClient, o)], o && o.ctx).alerts.length > 0;
+  }
+  function R(opts, header) { return "alert " + (header || "tcp any any -> any any") + " (msg:\"t\"; " + opts + " sid:1; rev:1;)"; }
+
+  // ================= capture formats =================
+  var req = PB.http("GET", "/a?x=1", {});
+  var res = PB.httpResponse(200, "hi");
+  var pk = PB.tcpSession({ client: "10.0.0.5", server: "192.0.2.10", request: req, response: res });
+  var cap = await read(PB.pcap(pk));
+  eq("classic pcap: format and counts", [cap.format, cap.packetCount, cap.sessions.length, cap.skipped], ["pcap", pk.length, 1, 0]);
+  var s0 = cap.sessions[0];
+  eq("session endpoints", [s0.client.ip, s0.client.port, s0.server.ip, s0.server.port, s0.proto], ["10.0.0.5", 40000, "192.0.2.10", 80, "tcp"]);
+  eq("session flags", [s0.established, s0.synSeen, s0.synAckSeen, s0.finSeen], [true, true, true, true]);
+  eq("reassembled request", txt(s0.dirs.toServer.data), req);
+  eq("reassembled response", txt(s0.dirs.toClient.data), res);
+  eq("timestamps in milliseconds", Math.round(cap.start), 1700000000000);
+  var capBe = await read(PB.pcap(pk, { big: true }));
+  eq("big-endian pcap reads the same", [capBe.sessions.length, txt(capBe.sessions[0].dirs.toServer.data)], [1, req]);
+  var capNano = await read(PB.pcap([{ ts: 1700000000123.456, frame: pk[0].frame }], { nano: true }));
+  truthy("nanosecond pcap keeps sub-millisecond time", Math.abs(capNano.start - 1700000000123.456) < 0.01, String(capNano.start));
+  var capNg = await read(PB.pcapng(pk));
+  eq("pcapng reads the same", [capNg.format, capNg.sessions.length, txt(capNg.sessions[0].dirs.toServer.data)], ["pcapng", 1, req]);
+  truthy("pcapng timestamps (microsecond default)", Math.abs(capNg.start - 1700000000000) < 1, String(capNg.start));
+  var capNgNano = await read(PB.pcapng([{ ts: 1700000000123.456, frame: pk[0].frame }], { nano: true }));
+  truthy("pcapng nanosecond resolution option", Math.abs(capNgNano.start - 1700000000123.456) < 0.01, String(capNgNano.start));
+  if (typeof CompressionStream !== "undefined") {
+    var gz = new Uint8Array(await new Response(new Blob([PB.pcap(pk)]).stream().pipeThrough(new CompressionStream("gzip"))).arrayBuffer());
+    var capGz = await read(gz);
+    eq("gzip-compressed capture is read", [capGz.sessions.length, txt(capGz.sessions[0].dirs.toServer.data)], [1, req]);
+  }
+  eq("garbage file gives a friendly error", /does not look like a PCAP/.test(await throwsMsg(function () { return read(new Uint8Array(100).fill(7)); })), true);
+  eq("tiny file gives a friendly error", /too small/.test(await throwsMsg(function () { return read(new Uint8Array(4)); })), true);
+  var whole = PB.pcap(pk);
+  var cut = await read(whole.subarray(0, whole.length - 7));
+  truthy("truncated capture drops the last packet and warns", cut.packetCount === pk.length - 1 && cut.warnings.length === 1, JSON.stringify(cut.warnings));
+
+  // ================= link types and IP versions =================
+  ["vlan", "raw", "sll"].forEach(function (link) { });
+  for (var li = 0; li < 3; li++) {
+    var link = ["vlan", "raw", "sll"][li];
+    var c2 = await read(PB.pcap(PB.tcpSession({ client: "10.0.0.5", server: "192.0.2.10", request: req, response: res, link: link }), { link: link }));
+    eq("link type " + link, [c2.sessions.length, txt(c2.sessions[0].dirs.toServer.data)], [1, req]);
+  }
+  var c6 = await read(PB.pcap(PB.tcpSession({ client: "2001:db8::1", server: "2001:db8::2", request: req, response: res, v6: true })));
+  eq("IPv6 TCP session", [c6.sessions[0].ipv, c6.sessions[0].client.ip, c6.sessions[0].server.ip, txt(c6.sessions[0].dirs.toServer.data)], [6, "2001:db8::1", "2001:db8::2", req]);
+  var cu = await read(PB.pcap([PB.udp({ src: "10.0.0.5", dst: "192.0.2.53", sport: 50000, dport: 53, payload: "query", ts: 1000 }), PB.udp({ src: "192.0.2.53", dst: "10.0.0.5", sport: 53, dport: 50000, payload: "answer", ts: 1001 })]));
+  var us = cu.sessions[0];
+  eq("UDP session", [us.proto, us.client.port, us.server.port, us.datagrams.map(function (d) { return d.dir; }), txt(us.datagrams[0].data), us.established], ["udp", 50000, 53, ["toServer", "toClient"], "query", true]);
+  var cuServerFirst = await read(PB.pcap([PB.udp({ src: "192.0.2.53", dst: "10.0.0.5", sport: 53, dport: 50000, payload: "x", ts: 1000 })]));
+  eq("UDP seen only from the low port: that side is the server", [cuServerFirst.sessions[0].server.port, cuServerFirst.sessions[0].datagrams[0].dir], [53, "toClient"]);
+  var ci = await read(PB.pcap([{ ts: 1000, frame: PB.frame({ proto: "icmp", src: "10.0.0.5", dst: "192.0.2.1", type: 8, payload: "ping" }) }]));
+  eq("ICMP session", [ci.sessions[0].proto, ci.sessions[0].datagrams[0].icmp.type], ["icmp", 8]);
+  var frag = PB.frame({ proto: "tcp", src: "10.0.0.5", dst: "192.0.2.10", sport: 1, dport: 2, payload: "x" });
+  frag[14 + 6] = 0x00; frag[14 + 7] = 0x10;
+  var cf = await read(PB.pcap([{ ts: 1, frame: frag }]));
+  eq("non-first IP fragments are skipped", [cf.skipped, cf.sessions.length], [1, 0]);
+  var arp = new Uint8Array(60); arp[12] = 0x08; arp[13] = 0x06;
+  eq("non-IP frames are skipped", (await read(PB.pcap([{ ts: 1, frame: arp }]))).skipped, 1);
+
+  // ================= TCP reassembly =================
+  var long = PB.http("POST", "/up", {}, "0123456789abcdefghijklmnopqrstuvwxyz");
+  var split = PB.tcpSession({ client: "10.0.0.5", server: "192.0.2.10", request: long, response: res, split: 9 });
+  var dataIdx = split.map(function (p, i) { return i; }).slice(3, 3 + Math.ceil(long.length / 9));
+  var shuffled = split.slice(); var seg = dataIdx.map(function (i) { return split[i]; }).reverse();
+  dataIdx.forEach(function (i, n) { shuffled[i] = seg[n]; });
+  eq("out-of-order segments are put back in order", txt((await read(PB.pcap(shuffled))).sessions[0].dirs.toServer.data), long);
+  var withDup = split.slice(); withDup.splice(4, 0, split[4]);
+  var capDup = await read(PB.pcap(withDup));
+  eq("retransmission is dropped", [txt(capDup.sessions[0].dirs.toServer.data), capDup.sessions[0].dirs.toServer.retransmits], [long, 1]);
+  var withGap = split.slice(); withGap.splice(5, 1);
+  var capGap = await read(PB.pcap(withGap));
+  eq("a missing segment is noted and the stream continues", [capGap.sessions[0].dirs.toServer.gaps, capGap.sessions[0].dirs.toServer.data.length], [1, long.length - 9]);
+  var wrap = PB.tcpSession({ client: "10.0.0.5", server: "192.0.2.10", request: long, response: res, split: 9, isn: 4294967290 });
+  eq("sequence numbers wrap around 2^32", txt((await read(PB.pcap(wrap))).sessions[0].dirs.toServer.data), long);
+  var mid = PB.tcpSession({ client: "10.0.0.5", server: "192.0.2.10", request: req, response: res, noHandshake: true });
+  var capMid = await read(PB.pcap(mid));
+  eq("capture that starts mid-stream", [capMid.sessions[0].client.port, capMid.sessions[0].server.port, capMid.sessions[0].established], [40000, 80, true]);
+  var midServerFirst = PB.tcpSession({ client: "10.0.0.5", server: "192.0.2.10", request: "", response: res, noHandshake: true, noClose: true });
+  var capMid2 = await read(PB.pcap(midServerFirst));
+  eq("mid-stream, server data first: low port is the server", [capMid2.sessions[0].client.port, capMid2.sessions[0].server.port], [40000, 80]);
+  var two = PB.merge(PB.tcpSession({ client: "10.0.0.5", server: "192.0.2.10", cport: 40001, request: req, response: res }), PB.tcpSession({ client: "10.0.0.6", server: "192.0.2.10", cport: 40002, request: req, response: res }));
+  eq("two sessions stay separate", (await read(PB.pcap(two))).sessions.length, 2);
+
+  // ================= rule parsing =================
+  eq("splitRules joins continuation lines and skips comments", IDS.splitRules("# note\nalert tcp any any -> any any (msg:\"a\"; \\\n content:\"b\"; sid:1;)\n\n  # alert tcp x\nalert udp any any -> any 53 (sid:2;)").length, 2);
+  var r1 = IDS.parseRule('alert tcp $EXTERNAL_NET any -> $HOME_NET [80,8080] (msg:"Test; with semicolon"; flow:to_server,established; content:"GET|20|/admin"; nocase; depth:20; offset:2; content:"a\\;b\\"c"; distance:1; within:10; pcre:"/id=\\d+/Ui"; sid:1000001; rev:3; classtype:web-application-attack; priority:2;)', "suricata");
+  eq("header fields", [r1.action, r1.proto, r1.src, r1.sport, r1.dir, r1.dst, r1.dport], ["alert", "tcp", "$EXTERNAL_NET", "any", "->", "$HOME_NET", "[80,8080]"]);
+  eq("metadata options", [r1.sid, r1.rev, r1.gid, r1.msg, r1.classtype, r1.priority], [1000001, 3, 1, "Test; with semicolon", "web-application-attack", 2]);
+  eq("flow parsed", [r1.flow.toServer, r1.flow.toClient, r1.flow.established], [true, false, true]);
+  eq("content with hex block and modifiers", [r1.contents[0].str, r1.contents[0].nocase, r1.contents[0].depth, r1.contents[0].offset, r1.contents[0].neg], ["GET /admin", true, 20, 2, false]);
+  eq("content with escapes and relative modifiers", [r1.contents[1].str, r1.contents[1].distance, r1.contents[1].within], ["a;b\"c", 1, 10]);
+  eq("pcre flags and buffer", [r1.pcres[0].src, r1.pcres[0].flags, r1.pcres[0].buffer, r1.usesHttp], ["id=\\d+", "Ui", "http.uri", true]);
+  eq("negated content", IDS.parseRule('alert tcp any any -> any any (content:!"bad"; sid:2;)').contents[0].neg, true);
+  eq("hex round trip", IDS.unescapeContent(IDS.escapeContent("A;B|\r\n\"\\")), "A;B|\r\n\"\\");
+  eq("escapeContent output", IDS.escapeContent("A;B|\r\n"), "A|3B|B|7C 0D 0A|");
+  eq("short Snort 3 service header", IDS.parseRule('alert http (msg:"x"; http_uri; content:"a"; sid:3;)', "snort3").proto, "http");
+  var inl = IDS.parseRule('alert tcp any any -> any 80 (http_uri; content:"a,b\\"c", nocase, offset 3, depth 8, fast_pattern; content:"x",distance 1,within 9; sid:12;)', "snort3");
+  eq("Snort 3 inline content modifiers", [inl.contents[0].str, inl.contents[0].nocase, inl.contents[0].offset, inl.contents[0].depth, inl.contents[0].fast, inl.contents[1].distance, inl.contents[1].within, inl.contents[0].buffer], ["a,b\"c", true, 3, 8, true, 1, 9, "http.uri"]);
+  eq("Snort 3 inline modifiers behave like separate ones", [fires(R('content:"abc", offset 2, depth 3;'), "xxabcxx", "", { engine: "snort3" }), fires(R('content:"abc", offset 2, depth 2;'), "xxabcxx", "", { engine: "snort3" })], [true, false]);
+  eq("short header flag", [IDS.parseRule('alert http (content:"a"; sid:1;)').shortHeader, IDS.parseRule('alert tcp any any -> any any (content:"a"; sid:1;)').shortHeader], [true, undefined]);
+  eq("startswith and endswith", (function () { var c = IDS.parseRule('alert tcp any any -> any any (content:"a"; startswith; content:"b"; endswith; sid:4;)').contents; return [c[0].startswith, c[1].endswith]; })(), [true, true]);
+  eq("fast_pattern flag", IDS.parseRule('alert tcp any any -> any any (content:"abc"; fast_pattern; sid:5;)').contents[0].fast, true);
+  eq("variable offsets are noted, not guessed", IDS.parseRule('alert tcp any any -> any any (content:"a"; offset:var1; sid:6;)').contents[0].varMods, ["offset:var1"]);
+  var legacy = IDS.parseRule('alert tcp any any -> any 80 (content:"login"; http_uri; content:"x"; nocase; http_header; sid:7;)', "snort2");
+  eq("legacy modifier style (Snort 2)", [legacy.contents[0].buffer, legacy.contents[1].buffer, legacy.contents[1].nocase], ["http.uri", "http.header", true]);
+  var legacySur = IDS.parseRule('alert tcp any any -> any 80 (content:"login"; http_uri; sid:7;)', "suricata");
+  eq("legacy modifier style also reads in Suricata", legacySur.contents[0].buffer, "http.uri");
+  var sticky3 = IDS.parseRule('alert tcp any any -> any 80 (http_uri; content:"login"; http_header; content:"x"; sid:8;)', "snort3");
+  eq("sticky buffers (Snort 3)", [sticky3.contents[0].buffer, sticky3.contents[1].buffer], ["http.uri", "http.header"]);
+  var stickyS = IDS.parseRule('alert http any any -> any any (http.uri; content:"login"; http.header; content:"x"; pkt_data; content:"y"; sid:9;)', "suricata");
+  eq("sticky buffers (Suricata) including pkt_data", [stickyS.contents[0].buffer, stickyS.contents[1].buffer, stickyS.contents[2].buffer], ["http.uri", "http.header", "raw"]);
+  var uns = IDS.parseRule('alert tcp any any -> any any (content:"a"; byte_test:2,>,5,0; flowbits:isset,x; sid:10;)');
+  truthy("options that cannot be simulated are listed", uns.unsupported.indexOf("byte_test") >= 0 && uns.unsupported.indexOf("flowbits") >= 0, JSON.stringify(uns.unsupported));
+  eq("threshold option is kept", IDS.parseRule('alert tcp any any -> any any (content:"a"; threshold:type limit, track by_src, count 1, seconds 60; sid:11;)').thresholdOpt.key, "threshold");
+  eq("no parentheses is an error", /option list/.test(await throwsMsg(function () { return IDS.parseRule("alert tcp any any -> any any"); })), true);
+  eq("unquoted content is an error", /quotes/.test(await throwsMsg(function () { return IDS.parseRule("alert tcp any any -> any any (content:abc; sid:1;)"); })), true);
+  eq("bad direction is an error", /direction/.test(await throwsMsg(function () { return IDS.parseRule('alert tcp any any <- any any (content:"a"; sid:1;)'); })), true);
+  eq("bad pcre is an error", /pcre/.test(await throwsMsg(function () { return IDS.parseRule('alert tcp any any -> any any (pcre:"abc"; sid:1;)'); })), true);
+  eq("parseRules reports a bad rule and keeps the good one", IDS.parseRules('alert tcp any any -> any any (content:"a"; sid:1;)\nnot a rule (x)').map(function (x) { return x.ok; }), [true, false]);
+
+  // ================= search windows (verified against Suricata's inspection code) =================
+  eq("absolute window: offset 2 depth 3 finds abc at 2", fires(R('content:"abc"; offset:2; depth:3;'), "xxabcxx"), true);
+  eq("depth counts from offset: offset 2 depth 2 is too short", fires(R('content:"abc"; offset:2; depth:2;'), "xxabcxx"), false);
+  eq("offset 1 depth 3 window ends before the match ends", fires(R('content:"abc"; offset:1; depth:3;'), "xxabcxx"), false);
+  eq("offset 3 starts after the match", fires(R('content:"abc"; offset:3;'), "xxabcxx"), false);
+  eq("depth 5 from the start covers it", fires(R('content:"abc"; depth:5;'), "xxabcxx"), true);
+  eq("depth 4 does not", fires(R('content:"abc"; depth:4;'), "xxabcxx"), false);
+  eq("startswith matches at the start", fires(R('content:"abc"; startswith;'), "abcxx"), true);
+  eq("startswith rejects a later match", fires(R('content:"abc"; startswith;'), "xabc"), false);
+  eq("endswith matches at the end", fires(R('content:"abc"; endswith;'), "xxabc"), true);
+  eq("endswith rejects an earlier match", fires(R('content:"abc"; endswith;'), "abcx"), false);
+  eq("case sensitive by default", fires(R('content:"abc";'), "xxABCxx"), false);
+  eq("nocase", fires(R('content:"abc"; nocase;'), "xxABCxx"), true);
+  eq("relative: distance 4 within 4 covers EF", fires(R('content:"AB"; content:"EF"; distance:4; within:4;'), "ABCDxxxxEF"), true);
+  eq("relative: within counts from the start of the distance window", fires(R('content:"AB"; content:"EF"; distance:4; within:2;'), "ABCDxxxxEF"), false);
+  eq("relative: distance 6 within 2 is exactly [8,10)", fires(R('content:"AB"; content:"EF"; distance:6; within:2;'), "ABCDxxxxEF"), true);
+  eq("relative: distance 7 starts too late", fires(R('content:"AB"; content:"EF"; distance:7; within:3;'), "ABCDxxxxEF"), false);
+  eq("within alone counts from the previous match end", fires(R('content:"AB"; content:"EF"; within:8;'), "ABCDxxxxEF"), true);
+  eq("within 7 ends one byte early", fires(R('content:"AB"; content:"EF"; within:7;'), "ABCDxxxxEF"), false);
+  eq("negative distance looks backwards", fires(R('content:"ABC"; content:"XYZ"; distance:-6; within:6;'), "XYZABC"), true);
+  eq("retries earlier matches (backtracking)", fires(R('content:"A"; content:"B"; distance:0; within:3;'), "A----A-B"), true);
+  eq("backtracking still fails when no start works", fires(R('content:"A"; content:"B"; distance:0; within:1;'), "A----A-B"), false);
+  eq("negated content: absent passes", fires(R('content:"GET"; content:!"admin";'), "GET /home"), true);
+  eq("negated content: present blocks", fires(R('content:"GET"; content:!"admin";'), "GET /admin"), false);
+  eq("offset raises the start of a relative content", fires(R('content:"A"; content:"B"; distance:0; offset:6;'), "AxxxxxB"), true);
+  eq("two contents in order", fires(R('content:"B"; content:"A"; distance:0;'), "ABxxA"), true);
+  eq("hex content", fires(R('content:"|0D 0A|X";'), "a\r\nXb"), true);
+
+  // ================= pcre =================
+  eq("pcre anchored with ^", fires(R('pcre:"/^GET\\s+\\/[a-z]+/i";'), "get /abc"), true);
+  eq("pcre anchor rejects other methods", fires(R('pcre:"/^GET\\s+\\/[a-z]+/i";'), "POST /abc"), false);
+  eq("pcre relative flag starts after the previous content", fires(R('content:"id="; pcre:"/^\\d+/R";'), "id=123"), true);
+  eq("pcre relative flag rejects non-digits", fires(R('content:"id="; pcre:"/^\\d+/R";'), "id=abc"), false);
+  eq("pcre A flag anchors at the start", [fires(R('pcre:"/abc/A";'), "abcx"), fires(R('pcre:"/abc/A";'), "xabc")], [true, false]);
+  eq("pcre \\A is translated", [fires(R('pcre:"/\\Aabc/";'), "abcx"), fires(R('pcre:"/\\Aabc/";'), "xabc")], [true, false]);
+  eq("pcre escaped backslash before A stays literal", fires(R('pcre:"/\\\\Aabc/";'), "\\Aabc"), true);
+  eq("pcre possessive quantifier is accepted", fires(R('pcre:"/a++b/";'), "aaab"), true);
+  eq("pcre escaped plus quantified is not changed", fires(R('pcre:"/a\\++b/";'), "a+++b"), true);
+  eq("negated pcre", [fires(R('content:"x"; pcre:!"/bad/";'), "x good"), fires(R('content:"x"; pcre:!"/bad/";'), "x bad")], [true, false]);
+  var unsupportedP = IDS.parseRule(R('content:"x"; pcre:"/(?<!a)b(*SKIP)c/";'));
+  eq("pcre the simulator cannot translate is flagged and skipped", [unsupportedP.pcres[0].unsupported, IDS.run(unsupportedP, [S("xyz")]).approx], [true, ["pcre"]]);
+
+  // ================= dsize, isdataat, flow, header =================
+  eq("dsize greater than", fires(R('dsize:>100; content:"a";'), "a".repeat(50)), false);
+  eq("dsize range", fires(R('dsize:10<>60; content:"a";'), "a".repeat(50)), true);
+  eq("dsize exact", fires(R('dsize:50; content:"a";'), "a".repeat(50)), true);
+  eq("isdataat relative within the data", fires(R('content:"a"; isdataat:2,relative;'), "abc"), true);
+  eq("isdataat relative past the end", fires(R('content:"a"; isdataat:3,relative;'), "abc"), false);
+  eq("isdataat negated absolute", fires(R('content:"a"; isdataat:!3;'), "abc"), true);
+  eq("flow to_server fires on client data", fires(R('flow:to_server,established; content:"abc";'), "abc", ""), true);
+  eq("flow to_server does not fire on server data", fires(R('flow:to_server,established; content:"abc";'), "", "abc"), false);
+  eq("flow to_client fires on server data", fires(R('flow:to_client; content:"abc";'), "", "abc"), true);
+  eq("flow established needs a handshake or two-way data", fires(R('flow:established; content:"abc";'), "abc", "", { established: false }), false);
+  eq("header: CIDR source and destination", fires(R('content:"a";', "tcp 10.0.0.0/8 any -> 192.0.2.0/24 80"), "a"), true);
+  eq("header: negated source", fires(R('content:"a";', "tcp !10.0.0.0/8 any -> any any"), "a"), false);
+  eq("header: port list", fires(R('content:"a";', "tcp any any -> any [80,443]"), "a"), true);
+  eq("header: port range", [fires(R('content:"a";', "tcp any 1024: -> any any"), "a"), fires(R('content:"a";', "tcp any :1023 -> any any"), "a")], [true, false]);
+  eq("header: wrong protocol", fires(R('content:"a";', "udp any any -> any any"), "a"), false);
+  eq("header: variable with a value", [fires(R('content:"a";', "tcp $HOME_NET any -> any any"), "a", "", { ctx: { vars: { HOME_NET: "10.0.0.0/8" } } }), fires(R('content:"a";', "tcp $HOME_NET any -> any any"), "a", "", { ctx: { vars: { HOME_NET: "172.16.0.0/12" } } })], [true, false]);
+  eq("header: unset variable matches anything", fires(R('content:"a";', "tcp $HOME_NET any -> $EXTERNAL_NET $HTTP_PORTS"), "a"), true);
+  eq("header: bidirectional", fires(R('content:"a";', "tcp 192.0.2.0/24 80 <> 10.0.0.0/8 any"), "a"), true);
+  eq("header: one-way arrow is not reversed", fires(R('content:"a";', "tcp 192.0.2.0/24 80 -> 10.0.0.0/8 any"), "a", ""), false);
+  eq("header: IPv6 CIDR", IDS.matchAddr("2001:db8::/32", "2001:db8:1::5"), true);
+  eq("header: not matching IPv6 CIDR", IDS.matchAddr("2001:db8::/32", "2001:dead::5"), false);
+
+  // ================= HTTP =================
+  var post = PB.http("POST", "/login.php?id=1%27&q=a", { "User-Agent": "Evil/1.0", Cookie: "a=b", "Content-Type": "application/x-www-form-urlencoded" }, "user=admin&pass=x");
+  var resp = PB.httpResponse(200, "welcome home", { Server: "TestSrv", Location: "/next" });
+  function http(opts, o) { return fires(R(opts, "tcp any any -> any any"), post, resp, o); }
+  eq("http.uri content", http('http.uri; content:"login.php";'), true);
+  eq("http.uri is percent-decoded", http('http.uri; content:"id=1\'";'), true);
+  eq("http.uri.raw is not", [http('http.uri.raw; content:"%27";'), http('http.uri.raw; content:"id=1\'";')], [true, false]);
+  eq("http.method", [http('http.method; content:"POST";'), http('http.method; content:"GET";')], [true, false]);
+  eq("http.user_agent", http('http.user_agent; content:"Evil";'), true);
+  eq("http.cookie", http('http.cookie; content:"a=b";'), true);
+  eq("http.host", http('http.host; content:"example.test";'), true);
+  eq("http.request_body", http('http.request_body; content:"user=admin";'), true);
+  eq("content in the body is not in the URI", http('http.uri; content:"user=admin";'), false);
+  eq("http.header", http('http.header; content:"User-Agent|3A| Evil";'), true);
+  eq("legacy http_uri modifier", fires(R('content:"login.php"; http_uri;'), post, resp, { engine: "snort2" }), true);
+  eq("legacy http_client_body modifier", fires(R('content:"pass=x"; http_client_body;'), post, resp, { engine: "suricata" }), true);
+  eq("Snort 3 sticky http_uri", fires(R('http_uri; content:"login.php";'), post, resp, { engine: "snort3" }), true);
+  eq("response status code", fires(R('flow:to_client; http.stat_code; content:"200";'), post, resp), true);
+  eq("response header", fires(R('flow:to_client; http.server; content:"TestSrv";'), post, resp), true);
+  eq("response body (file_data)", fires(R('flow:to_client; file_data; content:"welcome";'), post, resp), true);
+  eq("response buffers are not in the request direction", fires(R('flow:to_server; http.stat_code; content:"200";'), post, resp), false);
+  eq("urilen", [http("urilen:>5; http.uri; content:\"login\";"), http("urilen:<5; http.uri; content:\"login\";")], [true, false]);
+  eq("buffer offsets are relative to the buffer", http('http.uri; content:"login"; startswith; depth:5;'), false);
+  eq("http.uri startswith with a leading slash", http('http.uri; content:"/login"; startswith;'), true);
+  eq("http rules do not fire on non-HTTP streams", fires(R('http.uri; content:"login";'), "\u0001\u0002 login", ""), false);
+  var chunked = "POST /c HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n6\r\n world\r\n0\r\n\r\n";
+  eq("chunked request body is decoded", fires(R('http.request_body; content:"hello world";'), chunked, ""), true);
+  var pipelined = PB.http("GET", "/one", {}) + PB.http("GET", "/two", {});
+  eq("pipelined requests are both parsed", [fires(R('http.uri; content:"/one";'), pipelined, ""), fires(R('http.uri; content:"/two";'), pipelined, "")], [true, true]);
+  eq("parseHttp finds two transactions", IDS.parseHttp("toServer", pipelined).txs.length, 2);
+  eq("parseHttp response fields", (function () { var t = IDS.parseHttp("toClient", resp).txs[0]; return [t.statCode, t.statMsg, t.body, t.server]; })(), ["200", "OK", "welcome home", "TestSrv"]);
+  var noReason = IDS.run(IDS.parseRule(R('http.uri; content:"login";')), [S("binary stuff here", "")]);
+  truthy("miss reasons are explained", Object.keys(noReason.reasons).some(function (r) { return /HTTP/.test(r); }), JSON.stringify(noReason.reasons));
+  var reasonContent = IDS.run(IDS.parseRule(R('content:"zzz"; offset:5; depth:10;')), [S("abcdefghijklmnop")]);
+  truthy("a missing content is explained with its window", Object.keys(reasonContent.reasons).some(function (r) { return /"zzz"/.test(r) && /window/.test(r); }), JSON.stringify(reasonContent.reasons));
+
+  // ================= end to end: capture file to alert =================
+  var fpPk = PB.tcpSession({ client: "10.0.0.5", server: "192.0.2.10", request: PB.http("GET", "/search?q=select+name", {}), response: res });
+  var fpCap = await read(PB.pcap(fpPk));
+  var e2e = IDS.run(IDS.parseRule(R('flow:to_server,established; http.uri; content:"select"; nocase;')), fpCap.sessions);
+  eq("rule fires on a capture", [e2e.alerts.length, e2e.sessionsAlerted, e2e.alerts[0].matches[0].start], [1, 1, 10]);
+  eq("matched time comes from the packet segments", e2e.alerts[0].unit.segs[0].ts >= 1700000000000, true);
+
+  // ================= rendering a rule for each engine =================
+  var TU = SK.idsTune;
+  var rr = IDS.parseRule('alert tcp $EXTERNAL_NET any -> $HOME_NET 80 (msg:"M"; flow:to_server,established; http.uri; content:"/a"; nocase; startswith; reference:url,example.test/x; sid:5; rev:1;)', "suricata");
+  eq("render for Suricata keeps the rule as written", TU.renderRule(rr, "suricata").text, 'alert tcp $EXTERNAL_NET any -> $HOME_NET 80 (msg:"M"; flow:to_server,established; http.uri; content:"/a"; nocase; startswith; reference:url,example.test/x; sid:5; rev:1;)');
+  eq("render for Snort 3 uses sticky buffers and inline modifiers", TU.renderRule(rr, "snort3").text, 'alert tcp $EXTERNAL_NET any -> $HOME_NET 80 (msg:"M"; flow:to_server,established; http_uri; content:"/a",nocase,offset 0,depth 2; reference:url,example.test/x; sid:5; rev:1;)');
+  eq("render for Snort 2 uses content modifiers", TU.renderRule(rr, "snort2").text, 'alert tcp $EXTERNAL_NET any -> $HOME_NET 80 (msg:"M"; flow:to_server,established; content:"/a"; nocase; offset:0; depth:2; http_uri; reference:url,example.test/x; sid:5; rev:1;)');
+  ["suricata", "snort3", "snort2"].forEach(function (eng) {
+    var again = IDS.parseRule(TU.renderRule(rr, eng).text, eng);
+    eq("rendered " + eng + " rule parses back to the same content", [again.contents[0].str, again.contents[0].buffer, again.contents[0].nocase], ["/a", "http.uri", true]);
+  });
+  var ua = IDS.parseRule('alert tcp any any -> any 80 (http.user_agent; content:"Evil"; sid:6;)', "suricata");
+  eq("Snort 3 has no user-agent buffer: falls back to headers and says so", [TU.renderRule(ua, "snort3").text.indexOf("http_header; content:\"Evil\"") > 0, TU.renderRule(ua, "snort3").warnings], [true, ["http.user_agent"]]);
+  eq("Suricata keeps http.user_agent", TU.renderRule(ua, "suricata").warnings, []);
+  eq("negated and endswith render", TU.renderRule(IDS.parseRule('alert tcp any any -> any any (content:"a"; endswith; content:!"b"; sid:7;)'), "snort2").text, 'alert tcp any any -> any any (content:"a"; isdataat:!1,relative; content:!"b"; sid:7;)');
+  eq("response body renders as file.data for Suricata", TU.renderRule(IDS.parseRule('alert http any any -> any any (file_data; content:"x"; sid:8;)', "snort3"), "suricata").text.indexOf("file.data; content") > 0, true);
+  var orig = IDS.parseRule('alert tcp any any -> any any (content:"abc"; sid:9;)'), cl = TU.cloneRule(orig);
+  cl.contents[0].offset = 5; cl.contents[0].nocase = true;
+  eq("cloned rules are independent", [orig.contents[0].offset, orig.contents[0].nocase, cl.contents[0].offset], [null, false, 5]);
+  eq("clone keeps contents and opts linked", cl.opts.filter(function (o) { return o.type === "content"; })[0] === cl.contents[0], true);
+
+  // ================= alert parsing =================
+  var eve = TU.parseAlert('{"timestamp":"2026-10-28T12:34:56.789012+0000","event_type":"alert","src_ip":"10.0.0.5","src_port":40000,"dest_ip":"192.0.2.10","dest_port":80,"proto":"TCP","alert":{"gid":1,"signature_id":1000001,"rev":2,"signature":"Admin probe","category":"Attempted Information Leak","severity":2},"http":{"url":"/x"}}');
+  eq("EVE alert", [eve.kind, eve.sid, eve.rev, eve.msg, eve.proto, eve.src.ip, eve.src.port, eve.dst.port, eve.priority], ["eve", 1000001, 2, "Admin probe", "tcp", "10.0.0.5", 40000, 80, 2]);
+  eq("EVE timestamp is parsed", eve.tsMs, Date.UTC(2026, 9, 28, 12, 34, 56, 789));
+  var fast = TU.parseAlert("10/28/2026-12:34:56.789012  [**] [1:2100498:7] GPL ATTACK_RESPONSE id check returned root [**] [Classification: Potentially Bad Traffic] [Priority: 2] {TCP} 192.0.2.10:80 -> 10.0.0.5:40000");
+  eq("Suricata fast.log", [fast.kind, fast.gid, fast.sid, fast.rev, fast.msg, fast.classification, fast.priority, fast.proto, fast.src.ip, fast.src.port, fast.dst.ip, fast.dst.port], ["fast", 1, 2100498, 7, "GPL ATTACK_RESPONSE id check returned root", "Potentially Bad Traffic", 2, "tcp", "192.0.2.10", 80, "10.0.0.5", 40000]);
+  var snortFast = TU.parseAlert("10/28-12:34:56.789012 [**] [1:1000001:3] Admin probe [**] [Classification: Web Application Attack] [Priority: 1] {TCP} 10.0.0.5:40000 -> 192.0.2.10:80");
+  eq("Snort alert_fast", [snortFast.sid, snortFast.rev, snortFast.src.port, snortFast.dst.ip], [1000001, 3, 40000, "192.0.2.10"]);
+  var fast6 = TU.parseAlert("10/28/2026-12:34:56.789012  [**] [1:5:1] v6 [**] [Priority: 3] {UDP} 2001:db8::5:5353 -> 2001:db8::1:53");
+  eq("IPv6 endpoints in a fast log", [fast6.src.ip, fast6.src.port, fast6.dst.ip, fast6.dst.port], ["2001:db8::5", 5353, "2001:db8::1", 53]);
+  eq("ICMP alert has no ports", TU.parseAlert("10/28/2026-12:00:00.000000  [**] [1:9:1] ping [**] [Priority: 3] {ICMP} 10.0.0.5 -> 192.0.2.1").dst.port, null);
+  eq("unknown alert text", TU.parseAlert("this is not an alert").kind, "unknown");
+  eq("empty alert text", TU.parseAlert("  "), null);
+
+  // ================= scenario A: a "/admin" rule that also matches a Referer header =================
+  function web(client, cport, method, uri, headers, body, t0) { return PB.tcpSession({ client: client, server: "192.0.2.10", cport: cport, request: PB.http(method, uri, headers, body), response: PB.httpResponse(200, "ok"), t0: t0 }); }
+  var fpA = await read(PB.pcap(PB.merge(
+    web("10.0.0.5", 40001, "GET", "/static/app.js", { Referer: "http://example.test/admin/index" }, undefined, 1700000000000),
+    web("10.0.0.6", 40002, "POST", "/api/save", {}, "path=/admin/settings", 1700000001000),
+    web("10.0.0.7", 40003, "GET", "/home", {}, undefined, 1700000002000))));
+  var tpA = await read(PB.pcap(web("203.0.113.9", 50001, "GET", "/admin/login.php", {}, undefined, 1700000100000)));
+  var ruleA = IDS.parseRule('alert tcp any any -> any 80 (msg:"Admin probe"; flow:to_server,established; content:"/admin"; nocase; sid:1; rev:1;)');
+  var anA = TU.analyze({ rule: ruleA, engine: "suricata", fp: fpA, tp: tpA, alert: null });
+  eq("A: false positives and true positives found", [anA.fp.alerts, anA.fp.sessions, anA.tp.alerts, anA.tp.sessions], [2, 2, 1, 1]);
+  var bufA = anA.recs.filter(function (r) { return r.kind === "buffer"; })[0];
+  truthy("A: recommends the HTTP URI buffer", bufA && /HTTP URI/.test(bufA.title), JSON.stringify(anA.recs.map(function (r) { return r.title; })));
+  eq("A: the buffer change removes both false positives and keeps the true positive", [bufA.effect.fpAfter, bufA.effect.keepsTp, bufA.effect.tpAfter], [0, true, 1]);
+  truthy("A: the recommended rule text uses the sticky buffer", bufA.ruleText.indexOf("http.uri; content:\"/admin\"") > 0, bufA.ruleText);
+  eq("A: combined recommendation applies it", [anA.steps.length > 0 && anA.steps[0].kind, anA.combined.effect.fpAfter, anA.combined.effect.keepsTp], ["buffer", 0, true]);
+  eq("A: the original rule is untouched", ruleA.contents[0].buffer, "raw");
+  var anAsnort2 = TU.analyze({ rule: IDS.parseRule(ruleA.raw, "snort2"), engine: "snort2", fp: fpA, tp: tpA, alert: null });
+  truthy("A: Snort 2 output uses the legacy modifier", anAsnort2.combined.ruleText.indexOf('content:"/admin"; nocase; http_uri;') > 0, anAsnort2.combined.ruleText);
+  var anA3 = TU.analyze({ rule: IDS.parseRule(ruleA.raw, "snort3"), engine: "snort3", fp: fpA, tp: tpA, alert: null });
+  truthy("A: Snort 3 output uses inline modifiers", anA3.combined.ruleText.indexOf('http_uri; content:"/admin",nocase') > 0, anA3.combined.ruleText);
+  var evA = anA.evidence.fp[0];
+  eq("A: evidence says where the match was", [evA.matches[0].label, evA.matches[0].bufferLabel, evA.matches[0].matched], ['"/admin"', "the raw payload", "/admin"]);
+  truthy("A: evidence shows the bytes around the match", /Referer|http/.test(evA.matches[0].before) && evA.matches[0].after.length > 0, JSON.stringify(evA.matches[0]));
+  eq("A: evidence carries the endpoints", [evA.client.ip, evA.server.port, evA.dir], ["10.0.0.5", 80, "toServer"]);
+  var anAnoTp = TU.analyze({ rule: ruleA, engine: "suricata", fp: fpA, tp: null, alert: null });
+  truthy("A: without a true-positive capture the advice is marked unverified", anAnoTp.hasTp === false && anAnoTp.combined === null && anAnoTp.notes.some(function (n) { return /No true-positive capture/.test(n); }), JSON.stringify(anAnoTp.notes));
+  eq("A: without a true-positive capture, only semantic changes are verified-free", anAnoTp.recs.every(function (r) { return r.effect.keepsTp === null; }), true);
+
+  // ================= scenario B: UDP command at the start of the payload =================
+  function udp(src, sport, payload, ts) { return PB.udp({ src: src, dst: "192.0.2.9", sport: sport, dport: 5000, payload: payload, ts: ts }); }
+  var fpB = await read(PB.pcap([udp("10.0.0.5", 50001, "status=ok;note CMD=none", 1000), udp("10.0.0.6", 50002, "heartbeat; a=1;CMD=zz.......", 1001)]));
+  var tpB = await read(PB.pcap([udp("203.0.113.9", 51001, "CMD=run", 2000), udp("203.0.113.9", 51002, "CMD=exec ls", 2001)]));
+  var ruleB = IDS.parseRule('alert udp any any -> any 5000 (msg:"Proto cmd"; content:"CMD="; sid:2; rev:1;)');
+  var anB = TU.analyze({ rule: ruleB, engine: "suricata", fp: fpB, tp: tpB });
+  var ancB = anB.recs.filter(function (r) { return r.kind === "anchor"; })[0];
+  eq("B: anchors the content to the start (Suricata)", [/very start/.test(ancB.title), ancB.change, ancB.effect.fpAfter, ancB.effect.keepsTp], [true, "startswith;", 0, true]);
+  var anB2 = TU.analyze({ rule: IDS.parseRule(ruleB.raw, "snort2"), engine: "snort2", fp: fpB, tp: tpB });
+  eq("B: the same advice for Snort uses offset and depth", anB2.recs.filter(function (r) { return r.kind === "anchor"; })[0].change, "offset:0; depth:4;");
+  var dsB = anB.recs.filter(function (r) { return r.kind === "dsize"; })[0];
+  truthy("B: a payload-size rule is offered for UDP", dsB && dsB.change === "dsize:6<>12;" && dsB.effect.fpAfter === 0 && dsB.effect.keepsTp === true, JSON.stringify(dsB && dsB.change));
+  eq("B: the combined rule removes the false positives", [anB.combined.effect.fpAfter, anB.combined.effect.keepsTp], [0, true]);
+  eq("B: positions are reported", TU.positionTable(ruleB, anB.evidence.tp.length ? IDS.run(ruleB, tpB.sessions).alerts : [])[0].starts, { min: 0, max: 0, n: 2 });
+
+  // ================= scenario C: two contents, too far apart in the false positive =================
+  function rawTcp(client, cport, port, payload, t0) { return PB.tcpSession({ client: client, server: "192.0.2.20", cport: cport, sport: port, request: payload, response: "", t0: t0 }); }
+  var fpC = await read(PB.pcap(rawTcp("10.0.0.5", 41001, 4444, "BEACON" + " ".repeat(30) + "id=7", 1000)));
+  var tpC = await read(PB.pcap(PB.merge(rawTcp("203.0.113.9", 52001, 4444, "BEACON id=42", 2000), rawTcp("203.0.113.9", 52002, 4444, "BEACON id=43", 2100))));
+  var ruleC = IDS.parseRule('alert tcp any any -> any 4444 (msg:"Beacon"; flow:to_server,established; content:"BEACON"; content:"id="; sid:3; rev:1;)');
+  var anC = TU.analyze({ rule: ruleC, engine: "suricata", fp: fpC, tp: tpC });
+  var chainC = anC.recs.filter(function (r) { return r.id === "chain1"; })[0];
+  eq("C: ties the second content to the first (distance 0, within 8)", [chainC.change, chainC.effect.fpAfter, chainC.effect.keepsTp], ["distance:0; within:8;", 0, true]);
+  truthy("C: the explanation gives the numbers", chainC.why.some(function (w) { return /bytes 0 to 8/.test(w); }), JSON.stringify(chainC.why));
+  eq("C: combined rule has the relative window", anC.combined.ruleText.indexOf('content:"id="; distance:0; within:8;') > 0, true);
+
+  // ================= scenario D: capitalization =================
+  var fpD = await read(PB.pcap(rawTcp("10.0.0.5", 41002, 4445, "run-cmd now", 1000)));
+  var tpD = await read(PB.pcap(rawTcp("203.0.113.9", 52003, 4445, "Run-Cmd now", 2000)));
+  var anD = TU.analyze({ rule: IDS.parseRule('alert tcp any any -> any 4445 (msg:"Cmd"; content:"Run-Cmd"; nocase; sid:4; rev:1;)'), engine: "suricata", fp: fpD, tp: tpD });
+  var ncD = anD.recs.filter(function (r) { return r.kind === "nocase"; })[0];
+  eq("D: offers case sensitivity, flagged high risk with a warning", [ncD.effect.fpAfter, ncD.effect.keepsTp, ncD.risk, /case/.test(ncD.warn)], [0, true, "high", true]);
+  eq("D: risky changes are not part of the combined rule", [anD.steps.every(function (st) { return st.kind !== "nocase"; }), anD.combined && anD.combined.effect.fpAfter], [true, 1]);
+
+  // ================= scenario E: a string that only the real attack has =================
+  var fpE = await read(PB.pcap(PB.merge(rawTcp("10.0.0.5", 41003, 4446, "user=guest&role=view", 1000), rawTcp("10.0.0.6", 41004, 4446, "user=guest&role=view&y=2", 1100))));
+  var tpE = await read(PB.pcap(PB.merge(rawTcp("203.0.113.9", 52004, 4446, "user=admin&role=root", 2000), rawTcp("203.0.113.9", 52005, 4446, "user=admin&role=root&x=1", 2100))));
+  var anE = TU.analyze({ rule: IDS.parseRule('alert tcp any any -> any 4446 (msg:"Login"; flow:to_server,established; content:"user="; sid:5; rev:1;)'), engine: "suricata", fp: fpE, tp: tpE });
+  var ctxE = anE.recs.filter(function (r) { return r.kind === "context"; })[0];
+  truthy("E: finds a string present in every true positive and no false positive", ctxE && /admin&role=root/.test(ctxE.title), JSON.stringify(anE.recs.map(function (r) { return r.title; })));
+  eq("E: the change removes the false positives and keeps the true ones", [ctxE.effect.fpAfter, ctxE.effect.keepsTp], [0, true]);
+  truthy("E: the new content is relative to the previous one", /distance:0; within:19;/.test(ctxE.change), ctxE.change);
+  truthy("E: with two samples there is no weak-sample warning", ctxE.warn.indexOf("Only one") < 0, ctxE.warn);
+  var tpE1 = await read(PB.pcap(rawTcp("203.0.113.9", 52006, 4446, "user=admin&role=root", 2000)));
+  var anE1 = TU.analyze({ rule: IDS.parseRule('alert tcp any any -> any 4446 (msg:"Login"; content:"user="; sid:5; rev:1;)'), engine: "suricata", fp: fpE, tp: tpE1 });
+  truthy("E: a single true-positive sample is called out as weak", anE1.recs.filter(function (r) { return r.kind === "context"; })[0].warn.indexOf("Only one") === 0, "");
+  truthy("E: the combined rule includes it", anE.combined.ruleText.indexOf('content:"admin&role=root"; distance:0; within:19;') > 0, anE.combined.ruleText);
+
+  // ================= scenario F: noisy source, rate limits and suppression =================
+  var fpFs = [], tpFs = [];
+  for (var fi = 0; fi < 5; fi++) fpFs.push(rawTcp("10.0.0.9", 43000 + fi, 4447, "ping-ping", 1000 + fi * 1000));
+  for (var ti = 0; ti < 8; ti++) tpFs.push(rawTcp("203.0.113.50", 53000 + ti, 4447, "ping-ping", 5000 + ti * 500));
+  var anF = TU.analyze({ rule: IDS.parseRule('alert tcp any any -> any 4447 (msg:"Ping"; content:"ping"; sid:6; rev:1;)'), engine: "suricata", fp: await read(PB.pcap(PB.merge.apply(null, fpFs))), tp: await read(PB.pcap(PB.merge.apply(null, tpFs))) });
+  var limitF = anF.others.filter(function (o) { return o.id === "limit"; })[0], supF = anF.others.filter(function (o) { return o.id === "suppress"; })[0], detF = anF.others.filter(function (o) { return o.id === "detfilter"; })[0];
+  eq("F: rate limit leaves one alert per source in 5 minutes", [limitF.effect.fpBefore, limitF.effect.fpAfter, limitF.change], [5, 1, "threshold:type limit, track by_src, count 1, seconds 300;"]);
+  eq("F: suppression names the source and keeps the true positives", [supF.change, supF.effect.keepsTp, supF.risk], ["suppress gen_id 1, sig_id 6, track by_src, ip 10.0.0.9   (in threshold.config)", true, "high"]);
+  eq("F: detection filter is set just above the false-positive burst", [detF.change, detF.effect.keepsTp], ["detection_filter:track by_src, count 6, seconds 60;", true]);
+  var anF3 = TU.analyze({ rule: IDS.parseRule('alert tcp any any -> any 4447 (msg:"Ping"; content:"ping"; sid:6; rev:1;)', "snort3"), engine: "snort3", fp: await read(PB.pcap(PB.merge.apply(null, fpFs))), tp: null });
+  truthy("F: Snort 3 gets configuration syntax for suppress and event_filter", anF3.others.filter(function (o) { return o.id === "suppress"; })[0].change.indexOf("suppress = { { gid = 1, sid = 6, track = 'by_src', ip = '10.0.0.9' } }") === 0 && /event_filter/.test(anF3.others.filter(function (o) { return o.id === "limit"; })[0].change), "");
+  eq("F: alert statistics list the noisy source", [anF.alertStats.sources, anF.alertStats.perSource[0].ip, anF.alertStats.perSource[0].count], [1, "10.0.0.9", 5]);
+  var ruleF2 = IDS.parseRule('alert tcp any any -> any 4447 (msg:"Ping"; content:"ping"; content:"pong"; sid:7; rev:1;)');
+  truthy("F: a fast pattern suggestion appears for multi-content rules", TU.analyze({ rule: IDS.parseRule('alert tcp any any -> any 4447 (msg:"Ping"; content:"ping"; content:"ping-ping"; sid:7; rev:1;)'), engine: "suricata", fp: await read(PB.pcap(PB.merge.apply(null, fpFs))), tp: null }).others.some(function (o) { return o.id === "fast"; }), "");
+
+  // ================= page helpers: compose and the shipped examples =================
+  var compA = anA.compose([bufA.id]);
+  eq("compose applies chosen changes and measures them", [compA.applied, compA.effect.fpAfter, compA.effect.keepsTp, compA.ruleText.indexOf("http.uri;") > 0], [[bufA.id], 0, true, true]);
+  eq("compose with nothing chosen leaves the rule alone", anA.compose([]).effect.fpAfter, 2);
+  eq("analysis exposes the alerts for the position table", [anA.fpAlerts.length, anA.tpAlerts.length], [2, 1]);
+  for (var exi = 0; exi < SK.idsData.EXAMPLES.length; exi++) {
+    var ex = SK.idsData.EXAMPLES[exi], caps = ex.build(PB), cfp = await read(caps.fp), ctp = await read(caps.tp);
+    var exAn = TU.analyze({ rule: IDS.parseRule(ex.rule, ex.engine), engine: ex.engine, fp: cfp, tp: ctp, alert: ex.alert ? TU.parseAlert(ex.alert) : null });
+    truthy("example " + ex.id + ": fires on both captures and the combined rule fixes it", exAn.fp.alerts > 0 && exAn.tp.alerts > 0 && exAn.combined && exAn.combined.effect.fpAfter === 0 && exAn.combined.effect.keepsTp === true, JSON.stringify(exAn.fp) + JSON.stringify(exAn.tp));
+  }
+
+  // ================= scenario G: the rule does not fire =================
+  var anG = TU.analyze({ rule: IDS.parseRule('alert tcp any any -> any 80 (msg:"x"; content:"zzzqqq"; sid:8;)'), engine: "suricata", fp: fpA, tp: null });
+  eq("G: no hit is reported with reasons", [anG.noFpHit, Object.keys(anG.fp.reasons).length > 0], [true, true]);
+  eq("G: no recommendations when nothing fired", anG.recs.length, 0);
+  var anG2 = TU.analyze({ rule: ruleA, engine: "suricata", fp: fpA, tp: await read(PB.pcap(web("203.0.113.9", 50009, "GET", "/home", {}, undefined, 1700000100000))) });
+  truthy("G: a true-positive capture that does not fire is called out", anG2.noTpHit === true && anG2.notes.some(function (n) { return /did not fire on the true-positive/.test(n); }), JSON.stringify(anG2.notes));
+
+  // ================= alert to session =================
+  var found = TU.findAlertSessions(fpA.sessions, TU.parseAlert('{"src_ip":"10.0.0.6","src_port":40002,"dest_ip":"192.0.2.10","dest_port":80,"proto":"TCP","alert":{"signature_id":1}}'));
+  eq("alert is matched to its session", [found.length, found[0].client.port], [1, 40002]);
+  eq("alert matches in reverse direction too", TU.findAlertSessions(fpA.sessions, TU.parseAlert("10/28/2026-12:00:00.000000  [**] [1:1:1] x [**] [Priority: 1] {TCP} 192.0.2.10:80 -> 10.0.0.6:40002")).length, 1);
+  eq("unmatched alert finds nothing", TU.findAlertSessions(fpA.sessions, TU.parseAlert("10/28/2026-12:00:00.000000  [**] [1:1:1] x [**] [Priority: 1] {TCP} 1.1.1.1:80 -> 2.2.2.2:1")).length, 0);
+  eq("analysis marks the alerted session", TU.analyze({ rule: ruleA, engine: "suricata", fp: fpA, tp: tpA, alert: TU.parseAlert('{"src_ip":"10.0.0.6","src_port":40002,"dest_ip":"192.0.2.10","dest_port":80,"proto":"TCP"}') }).alertSessions.length, 1);
+  eq("verification commands exist for each engine", ["suricata", "snort3", "snort2"].map(function (e) { return /capture\.pcap/.test(TU.verifyCommands(e)[0]); }), [true, true, true]);
+
+  document.getElementById("summary").innerHTML = '<span class="' + (failed ? "fail" : "pass") + '">' + passed + " passed, " + failed + " failed</span>";
+  document.getElementById("out").innerHTML = lines.join("\n");
+  window.__idsDone = { passed: passed, failed: failed };
+})().catch(function (e) {
+  document.getElementById("summary").innerHTML = '<span class="fail">Test run crashed: ' + e.message + '</span>';
+  document.getElementById("out").textContent = e.stack;
+  window.__idsDone = { crashed: e.message };
+});
+</script>
+</body>
+</html>

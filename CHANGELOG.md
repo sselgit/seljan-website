@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.5.0 - 2026-10-28
+
+- New Snort/Suricata tuner (`ids.html`): PCAP and PCAPNG reader with TCP reassembly, rule parser and match
+  simulator for Suricata 6/7, Snort 3 and Snort 2, and verified recommendations for offset, depth, distance,
+  within, HTTP buffers, flow, payload size, rate limits and suppression.
+- Three built-in example captures, a historical-check checklist, and engine verification commands.
+- New test page `tests/ids-test.html` (215 checks).
+
 ## 1.4.0 (2026-10-28)
 
 - Eight new lookup tools that ask public sources straight from the browser: DNS records, DNS report

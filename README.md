@@ -1,6 +1,6 @@
 # Seljan Security Tool Stack
 
-Version: 1.4.0
+Version: 1.5.0
 
 Free, browser-based security helpers served at https://seljan.net:
 
@@ -18,6 +18,10 @@ Free, browser-based security helpers served at https://seljan.net:
     vendor lookup, free/disposable email check, a hypothesis worksheet, phishing triage, an
     incident-note builder, reference tables, and a **rule tuner** that proposes narrow exclusions for
     a noisy detection rule (YARA-L, Sigma, Splunk, Kusto, regex, or plain language).
+  - *Snort/Suricata tuner* (`ids.html`): load a false-positive capture (and optionally a true-positive
+    capture), paste the rule and alert, pick Suricata 6/7, Snort 3 or Snort 2, and get offset, depth,
+    distance, within, buffer, flow, payload-size and rate-limit recommendations, each re-checked against
+    the captures and written in the chosen engine's syntax.
   - *Lookup tools:* DNS records, DNS report, DNSSEC test, DNS propagation, reverse DNS, WHOIS (via
     RDAP), abuse contacts, and ASN and routing.
 
@@ -71,12 +75,14 @@ browser cannot do them, and a scanner run from this site could be abused.
 | `site/js/lookup-ui.js` | Shared page helpers for the lookup tools, including the private-address gate |
 | `site/toolkit.html` and the other toolkit pages | One HTML page per tool, shared `css/toolkit.css` and `js/kit.js` |
 | `site/js/tuner-core.js`, `tuner-data.js` | Rule tuner engine and teaching content |
+| `site/js/pcap.js`, `ids-engine.js`, `ids-tune.js`, `ids-data.js`, `ids-tuner.js`, `pcap-build.js` | Snort/Suricata tuner: capture reader and TCP reassembly, rule parser and match simulator, recommendation engine, teaching content, page, and the builder that makes the example captures |
 | `site/data/oui.json` | MAC vendor list built from the IEEE public registries |
 | `scripts/gen_toolkit_pages.py` | Regenerates the toolkit HTML pages (the Content-Security-Policy for each page is built here) |
 | `scripts/probe_rdap_hosts.py` | Refreshes `scripts/rdap-cors-hosts.json`, the registries allowed in the WHOIS pages' policy |
 | `scripts/build_oui.py` | Rebuilds `site/data/oui.json` from IEEE (run every few months) |
 | `scripts/publish.sh` | Publishes `site/` to the `gh-pages` branch (GitHub Pages) |
 | `tests/lookups-test.html` | Browser test page for the IOC pivot engine (not published) |
+| `tests/ids-test.html` | Browser test page for the capture reader, rule engine and Snort/Suricata tuner (not published) |
 | `tests/kit-test.html` | Browser test page for the toolkit and lookup engine (not published) |
 | `tests/dns-fixtures.js` | Real DNS responses used to test the parser, in wire format and JSON |
 | `tests/contrast-audit.js` | Dev-only WCAG contrast audit you can load into a page (not published) |
@@ -109,3 +115,15 @@ The rule tuner is a helper, not a judge. By design it:
 - keeps the rule text locked until the user confirms a historical check, an owner, an attacker
   could not reuse the exclusion, testing, and a review date
 - writes starting-point text only; it does not validate syntax for any platform
+
+## Snort/Suricata tuner guardrails and limits
+
+- Captures are read in the browser only (the page's policy blocks all network requests).
+- The matcher is a simulation of a subset of rule options (content with offset, depth, distance, within,
+  nocase, startswith, endswith, sticky HTTP buffers, pcre, flow, dsize, isdataat, urilen, bsize). It says when
+  a rule uses something it cannot evaluate, and every output points to `suricata -r` or `snort -r` as the
+  final check.
+- Every recommendation is re-run against both captures and shows the false positives removed and whether the
+  true-positive capture still alerts. With no true-positive capture, nothing is marked verified.
+- Rule text stays locked behind the same historical-check checklist as the rule tuner. Suppressions and
+  negated contents are flagged high risk. IP addresses in the results are masked unless the user unticks it.
