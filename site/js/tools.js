@@ -1,4 +1,4 @@
-/* Seljan Security tool stack: IOC pivot, tool directory, and port reference.
+/* SOC Analyst Toolkit: IOC pivot, tool directory, and port reference.
  * All client-side. The pivot only builds links; nothing is sent until the user
  * clicks through to a third-party tool.
  */

@@ -88,7 +88,7 @@ def page(slug, title, desc, eyebrow, h1, lead, body, scripts, net=None):
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="Content-Security-Policy" content="{csp}">
   <meta name="referrer" content="no-referrer">
-  <title>{title} | Seljan Security</title>
+  <title>{title} | SOC Analyst Toolkit</title>
   <meta name="description" content="{desc}">
   <meta name="theme-color" content="#0B1426">
   <meta name="color-scheme" content="dark">
@@ -102,9 +102,8 @@ def page(slug, title, desc, eyebrow, h1, lead, body, scripts, net=None):
 
   <header class="site-header">
     <div class="container header-inner">
-      <a class="brand" href="index.html" aria-label="Seljan Security home">
-        <img src="assets/logo/logo-icon.svg" alt="" width="52" height="52">
-        <span class="brand-text">Seljan <em>Security</em></span>
+      <a class="brand" href="index.html" aria-label="SOC Analyst Toolkit home">
+        <span class="brand-text">SOC Analyst <em>Toolkit</em></span>
       </a>
       <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">
         <span class="sr-only">Menu</span>
@@ -145,7 +144,7 @@ def page(slug, title, desc, eyebrow, h1, lead, body, scripts, net=None):
   <footer class="site-footer">
     <div class="container footer-inner">
       <div class="footer-brand">
-        <img src="assets/logo/logo-full-white.svg" alt="Seljan Security" width="220" height="47">
+        <p class="footer-name">SOC Analyst Toolkit</p>
         <p>A free security tool stack.</p>
       </div>
       <div class="footer-links">
@@ -155,7 +154,7 @@ def page(slug, title, desc, eyebrow, h1, lead, body, scripts, net=None):
         <a href="check.html">Email checker</a>
       </div>
       <div class="footer-legal">
-        <p>&copy; 2026 Seljan Security.</p>
+        <p>&copy; 2026 SOC Analyst Toolkit.</p>
         <p><strong>Privacy:</strong> the analyst toolkit runs in your browser. The offline tools are blocked from
           making any network request. The lookup tools ask the public sources named on each page, directly from your
           browser and only when you press the button. We never receive, store or relay what you type or load.</p>

@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.7.0 - 2026-10-28
+
+- Renamed the site to SOC Analyst Toolkit in every page title, header, footer, and script comment.
+- Removed the logo (header icon, footer logo, logo files) and replaced the favicon with a neutral magnifier icon.
+
 ## 1.6.1 - 2026-10-28
 
 - Fixed: the DNS report said "This domain does not exist" for most real domains. A missing `_dmarc` or `_mta-sts`
