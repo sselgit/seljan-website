@@ -198,7 +198,7 @@
 
   H.FORMATS = [
     { id: 'chronicle', label: 'Google SecOps (Chronicle) rule exclusion' },
-    { id: 'yaral', label: 'YARA-L 2.0 not-conditions' },
+    { id: 'yaral', label: 'YARA-L 2.0 (your own rules)' },
     { id: 'sigma', label: 'Sigma filter' },
     { id: 'splunk', label: 'Splunk (SPL)' },
     { id: 'kql', label: 'Kusto (Sentinel / Defender)' },
@@ -220,31 +220,40 @@
     if (format === 'chronicle') {
       L = comments();
       L.push('');
-      L.push('Where: the Rule Exclusions page in Google SecOps (applies to Google curated detections only).');
-      L.push('Pick the rule or rule set this exclusion is for, then add these conditions. They are combined with AND, so the alert is');
-      L.push('suppressed only when every one matches:');
-      L.push('');
+      L.push('A. In the Google SecOps UI: Detection > Rules and Detections > open the rule > Rule Options > Exclude.');
+      L.push('   (Rule exclusions apply to Google curated detections. Statements added with "+ Conditional Statement" are ANDed;');
+      L.push('   several values on one row are ORed.) Google documents the operators IS and CONTAINS for this screen.');
       conds.forEach(function (c, i) {
-        L.push('  ' + (i + 1) + '. UDM field: ' + (c.udm || '<fill in the UDM field for ' + c.key + '>'));
-        L.push('     Match type: ' + ({ exact: 'equals', startswith: 'starts with', endswith: 'ends with', contains: 'contains', regex: 'regular expression' })[c.mode] + '   (use the closest operator the editor offers)');
-        L.push('     Value: ' + c.value);
+        var f = c.udm || '<fill in the UDM field for ' + c.key + '>';
+        if (c.mode === 'exact') L.push('   ' + (i + 1) + '. ' + f + '  IS  ' + c.value);
+        else if (c.mode === 'contains') L.push('   ' + (i + 1) + '. ' + f + '  CONTAINS  ' + c.value);
+        else L.push('   ' + (i + 1) + '. ' + f + ': "' + ({ startswith: 'starts with', endswith: 'ends with', regex: 'regular expression' })[c.mode] + '" is not a documented operator on this screen. Use the query in B, or an IS with the full value.');
       });
       L.push('');
-      L.push('Then use the exclusion test (past two weeks of detections) and confirm only the false positives disappear before enabling it.');
+      L.push('B. As an API exclusion (findingsRefinements "query" field, UDM search syntax; AND between conditions):');
+      var qparts = conds.map(function (c) {
+        var f = c.udm || '<udm field for ' + c.key + '>';
+        if (c.mode === 'exact') return f + ' = ' + q(c.value) + ' nocase';
+        var re = c.mode === 'startswith' ? '^' + escRe(c.value) : (c.mode === 'endswith' ? escRe(c.value) + '$' : (c.mode === 'contains' ? escRe(c.value) : c.value));
+        return f + ' = /' + re.replace(/\//g, '\\/') + '/ nocase';
+      });
+      L.push('   ' + qparts.join(' and '));
+      L.push('');
+      L.push('Then run the exclusion test (past two weeks of detections) and confirm only the false positives disappear before enabling it.');
       return L.join('\n');
     }
     if (format === 'yaral') {
       L = comments();
-      L.push('// For your own YARA-L rules. Add inside the events: section, after the matching conditions.');
-      L.push('// Written to hide an event only when ALL of these match. The grouping with "not ( ... and ... )" is NOT confirmed');
-      L.push('// in Google\'s docs. Validate it in the rule editor; if it fails, use one exclusion per rule branch or a Rule Exclusion.');
+      L.push('// For your own YARA-L rules. Add this line inside the events: section, after the matching conditions.');
+      L.push('// An event is kept (not excluded) when ANY condition differs, which is the same as excluding only when ALL match.');
+      L.push('// Uses only constructs shown in the YARA-L reference: != "x" nocase, not re.regex(field, `p`) nocase, "or", parentheses.');
       var parts = conds.map(function (c) {
         var f = '$e.' + fld(c, 'yaral');
-        if (c.mode === 'exact') return f + ' = ' + q(c.value) + ' nocase';
+        if (c.mode === 'exact') return f + ' != ' + q(c.value) + ' nocase';
         var re = c.mode === 'startswith' ? '^' + escRe(c.value) : (c.mode === 'endswith' ? escRe(c.value) + '$' : (c.mode === 'contains' ? escRe(c.value) : c.value));
-        return 're.regex(' + f + ', `(?i)' + re.replace(/`/g, '') + '`)';
+        return 'not re.regex(' + f + ', `' + re.replace(/`/g, '') + '`) nocase';
       });
-      L.push(parts.length === 1 ? 'not ' + parts[0] : 'not (' + parts.join(' and ') + ')');
+      L.push(parts.length === 1 ? parts[0] : '(' + parts.join(' or ') + ')');
       return L.join('\n');
     }
     if (format === 'sigma') {

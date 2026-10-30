@@ -167,16 +167,21 @@
   var meta = { ref: "TUNE-1", owner: "Me", reviewBy: "2027-01-01", basis: "3 events" };
   var t = H.write("chronicle", conds, meta);
   truthy("chronicle: header", t.indexOf("# Tuning exclusion TUNE-1") === 0, t);
-  truthy("chronicle: udm field", t.indexOf("UDM field: principal.process.file.full_path") > 0);
-  truthy("chronicle: match type", t.indexOf("Match type: starts with") > 0);
-  truthy("chronicle: value", t.indexOf("Value: " + PAR) > 0);
-  truthy("chronicle: AND note", /combined with AND/.test(t));
+  truthy("chronicle: UI line uses IS", t.indexOf("principal.process.file.full_path  IS  " + PAR) > 0, t);
+  truthy("chronicle: startswith not a UI operator", t.indexOf('"starts with" is not a documented operator') > 0, t);
+  truthy("chronicle: CONTAINS", H.write("chronicle", [C("CommandLine", "contains", "x")], {}).indexOf("target.process.command_line  CONTAINS  x") > 0);
+  truthy("chronicle: API query exact + regex", t.indexOf('   principal.process.file.full_path = "C:\\\\Program Files\\\\NorthwindBackup\\\\nbagent.exe" nocase and target.process.command_line = /^powershell\\.exe -File "C:\\\\x y\\.ps1"/ nocase') > 0, t);
+  truthy("chronicle: API regex passes user regex through", H.write("chronicle", [C("CommandLine", "regex", "-Job \\d+$")], {}).indexOf("target.process.command_line = /-Job \\d+$/ nocase") > 0);
+  truthy("chronicle: slash in regex escaped", H.write("chronicle", [C("CommandLine", "contains", "a/b")], {}).indexOf("= /a\\/b/ nocase") > 0);
+  truthy("chronicle: AND/OR note", /ANDed/.test(t) && /ORed/.test(t));
   truthy("chronicle: blank for unknown udm", H.write("chronicle", [C("Zork", "exact", "x")], {}).indexOf("<fill in the UDM field for Zork>") > 0);
 
   t = H.write("yaral", conds, meta);
-  truthy("yaral: not ( a and b )", /^not \(\$e\.principal\.process\.file\.full_path = ".*" nocase and re\.regex\(\$e\.target\.process\.command_line, `\(\?i\)\^powershell\\\.exe -File "C:\\\\x y\\\.ps1"`\)\)$/m.test(t), t);
-  truthy("yaral: single condition has no parens", /^not \$e\./m.test(H.write("yaral", [conds[0]], {})));
-  truthy("yaral: regex mode passed through", H.write("yaral", [C("CommandLine", "regex", "-Job \\d+$")], {}).indexOf("`(?i)-Job \\d+$`") > 0);
+  truthy("yaral: (a != or not re.regex) using documented forms", /^\(\$e\.principal\.process\.file\.full_path != ".*" nocase or not re\.regex\(\$e\.target\.process\.command_line, `\^powershell\\\.exe -File "C:\\\\x y\\\.ps1"`\) nocase\)$/m.test(t), t);
+  truthy("yaral: single exact has no parens", /^\$e\.principal\.process\.file\.full_path != ".*" nocase$/m.test(H.write("yaral", [conds[0]], {})));
+  truthy("yaral: single regex", /^not re\.regex\(\$e\.target\.process\.command_line, `-Job \\d\+\$`\) nocase$/m.test(H.write("yaral", [C("CommandLine", "regex", "-Job \\d+$")], {})));
+  truthy("yaral: no (?i) inside the pattern", H.write("yaral", conds, {}).indexOf("(?i)") < 0);
+  truthy("yaral: never emits 'not ('", H.write("yaral", conds, {}).indexOf("not (") < 0);
   truthy("yaral: backslashes escaped in string", H.write("yaral", [conds[0]], {}).indexOf('"C:\\\\Program Files\\\\NorthwindBackup\\\\nbagent.exe"') > 0);
 
   t = H.write("sigma", conds, meta);
