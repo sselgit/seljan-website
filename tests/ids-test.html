@@ -18,6 +18,7 @@
 <script src="../site/js/pcap.js"></script>
 <script src="../site/js/ids-engine.js"></script>
 <script src="../site/js/ids-tune.js"></script>
+<script src="../site/js/ids-payload.js"></script>
 <script src="../site/js/pcap-build.js"></script>
 <script src="../site/js/ids-data.js"></script>
 <script src="../site/js/attack-map.js"></script>
@@ -441,6 +442,71 @@
   eq("unmatched alert finds nothing", TU.findAlertSessions(fpA.sessions, TU.parseAlert("10/28/2026-12:00:00.000000  [**] [1:1:1] x [**] [Priority: 1] {TCP} 1.1.1.1:80 -> 2.2.2.2:1")).length, 0);
   eq("analysis marks the alerted session", TU.analyze({ rule: ruleA, engine: "suricata", fp: fpA, tp: tpA, alert: TU.parseAlert('{"src_ip":"10.0.0.6","src_port":40002,"dest_ip":"192.0.2.10","dest_port":80,"proto":"TCP"}') }).alertSessions.length, 1);
   eq("verification commands exist for each engine", ["suricata", "snort3", "snort2"].map(function (e) { return /capture\.pcap/.test(TU.verifyCommands(e)[0]); }), [true, true, true]);
+
+  // ================= payload tuning (SK.idsPayload) =================
+  var YP = SK.idsPayload;
+  var sqEx = SK.idsData.EXAMPLES.filter(function (e) { return e.id === "sqli"; })[0];
+  var sqB = sqEx.build(PB), sqFp = await read(sqB.fp), sqTp = await read(sqB.tp);
+  var sqRule = IDS.parseRule(sqEx.rule, "suricata");
+  var sqAn = TU.analyze({ rule: sqRule, engine: "suricata", fp: sqFp, tp: sqTp, alert: null });
+  eq("sqli example: rule fires 4 times on the harmless queries and 2 on the attacks", [sqAn.fp.alerts, sqAn.tp.alerts], [4, 2]);
+  var yc = YP.create({ rule: sqRule, engine: "suricata", fp: sqFp, tp: sqTp }, sqAn);
+  var opps = yc.opportunities();
+  eq("opportunity: the table name after the match is found in every alert", [opps[0].x, opps[0].alerts, opps[0].total], ["dog", 4, 4]);
+  eq("opportunities never include SQL words", opps.filter(function (o) { return /^(select|from|union)$/i.test(o.x); }).length, 0);
+  var vw = yc.views(10);
+  eq("views list each distinct payload with the decoded text", [vw.total, vw.distinct, vw.items[0].buffer, vw.items[0].text], [4, 4, "http.uri", "/report?q=select name from dog"]);
+  eq("view highlights the matched words", vw.items[0].ranges.map(function (r) { return vw.items[0].text.slice(r.s, r.e).toLowerCase(); }), ["select", "from"]);
+  var cd = yc.candidates("dog");
+  eq("three exclusion shapes are offered, narrowest first", cd.recs.map(function (r) { return r.mode; }), ["anchored", "window", "anywhere"]);
+  var an1 = cd.recs[0];
+  eq("anchored exclusion removes every false positive and keeps the attacks", [an1.effect.fpAfter, an1.effect.keepsTp, an1.effect.tpAfter], [0, true, 2]);
+  truthy("anchored exclusion is a negated relative anchored pcre, case sensitive when the traffic is", / pcre:!"\/ dog\(\?:&\|\$\)\/AR"/.test(an1.ruleText), an1.ruleText);
+  truthy("anchored exclusion survives the attacker tests", an1.tests.length >= 3 && an1.tests.every(function (t) { return t.valid && t.caught; }) && !an1.bypassed, JSON.stringify(an1.tests));
+  var wn = cd.recs[1], ax = cd.recs[2];
+  eq("window and anywhere exclusions also clear the false positives", [wn.effect.fpAfter, ax.effect.fpAfter], [0, 0]);
+  truthy("window exclusion is bypassed when the attacker slips the word in", wn.bypassed && wn.risk === "high" && wn.needsAck, JSON.stringify(wn.tests));
+  truthy("anywhere exclusion is bypassed too", ax.bypassed, JSON.stringify(ax.tests));
+  // the output round-trips: parse the rendered rule and run it
+  var rt = IDS.parseRule(an1.ruleText, "suricata");
+  eq("rendered anchored rule: silent on the false positives, alerts on the attacks", [IDS.run(rt, sqFp.sessions).alerts.length, IDS.run(rt, sqTp.sessions).alerts.length], [0, 2]);
+  sqAn.others.push(an1);
+  var comp = sqAn.compose([an1.id]);
+  eq("compose picks up a payload exclusion", [comp.applied, comp.effect.fpAfter, comp.effect.keepsTp], [[an1.id], 0, true]);
+  // checks
+  eq("attack text cannot be excluded", ["union", "' or 1=1", "a;b", "x=1", "/*c*/", "ab"].map(function (x) { return YP.check(x).locked; }), [true, true, true, true, true, true]);
+  eq("a plain word is allowed", YP.check("dog").locked, false);
+  truthy("a sensitive name is allowed but warned", !YP.check("users").locked && YP.check("users").warns.length > 0);
+  truthy("locked text returns no exclusions", yc.candidates("union").locked === true && yc.candidates("union").recs.length === 0);
+  eq("text that is not in the traffic gives a note, not a rule", [yc.candidates("cat").recs.length, yc.candidates("cat").notes.length > 0], [0, true]);
+  // a user-typed attack
+  var cdAtk = yc.candidates("dog", " ; DROP TABLE dog");
+  truthy("a typed attack is used for the append test", cdAtk.recs[0].tests[0] && /DROP TABLE/.test(cdAtk.recs[0].tests[0].name), JSON.stringify(cdAtk.recs[0].tests));
+  // Snort 2 syntax
+  var s2Rule = IDS.parseRule('alert tcp any any -> any 80 (msg:"x"; flow:to_server,established; content:"select"; http_uri; nocase; content:"from"; http_uri; nocase; distance:0; sid:3; rev:1;)', "snort2");
+  var s2An = TU.analyze({ rule: s2Rule, engine: "snort2", fp: sqFp, tp: sqTp, alert: null });
+  var s2c = YP.create({ rule: s2Rule, engine: "snort2", fp: sqFp, tp: sqTp }, s2An).candidates("dog");
+  truthy("snort 2 gets the URI flag on the pcre", /pcre:!"\/[^"]*\/ARU"/.test(s2c.recs[0].ruleText), s2c.recs[0] && s2c.recs[0].ruleText);
+  eq("snort 2 rule round-trips", (function () { var r = IDS.parseRule(s2c.recs[0].ruleText, "snort2"); return [IDS.run(r, sqFp.sessions).alerts.length, IDS.run(r, sqTp.sessions).alerts.length]; })(), [0, 2]);
+  // request body
+  function postReq(client, cport, body, t0) { return PB.tcpSession({ client: client, server: "192.0.2.10", cport: cport, request: PB.http("POST", "/report", { "Content-Type": "application/x-www-form-urlencoded" }, body), response: PB.httpResponse(200, "ok"), t0: t0 }); }
+  var bFp = await read(PB.pcap(PB.merge(postReq("10.0.0.5", 40001, "q=select name from dog", 1793188800000), postReq("10.0.0.5", 40002, "q=select age from dog", 1793188801000))));
+  var bTp = await read(PB.pcap(postReq("203.0.113.9", 50001, "q=1 union select password from users", 1793188900000)));
+  var bRule = IDS.parseRule('alert tcp any any -> any 80 (msg:"x"; flow:to_server,established; http.request_body; content:"select"; nocase; content:"from"; nocase; distance:0; sid:4; rev:1;)', "suricata");
+  var bAn = TU.analyze({ rule: bRule, engine: "suricata", fp: bFp, tp: bTp, alert: null });
+  var bc = YP.create({ rule: bRule, engine: "suricata", fp: bFp, tp: bTp }, bAn).candidates("dog");
+  eq("request body: anchored exclusion works and attacks are still caught", [bc.recs[0].effect.fpAfter, bc.recs[0].effect.keepsTp, bc.recs[0].tests.length >= 2, bc.recs[0].bypassed], [0, true, true, false]);
+  truthy("request body: the attacker test stream is valid after Content-Length is updated", bc.recs[0].tests.every(function (t) { return t.valid; }), JSON.stringify(bc.recs[0].tests));
+  // no true-positive capture
+  var nTp = YP.create({ rule: sqRule, engine: "suricata", fp: sqFp, tp: null }, TU.analyze({ rule: sqRule, engine: "suricata", fp: sqFp, tp: null, alert: null })).candidates("dog");
+  eq("without a true-positive capture the exclusion is not marked verified", [nTp.recs[0].effect.keepsTp, nTp.recs[0].effect.fpAfter], [null, 0]);
+  eq("without a true-positive capture only the typed or default attack test runs", nTp.recs[0].tests.length, 1);
+  // varying text after the match
+  var vFp = await read(PB.pcap(PB.merge(
+    PB.tcpSession({ client: "10.0.0.5", server: "192.0.2.10", cport: 40001, request: PB.http("GET", "/r?q=select%20name%20from%20dog%20where%20id%20%3C%205", {}), response: PB.httpResponse(200, "ok"), t0: 1793188800000 }))));
+  var vAn = TU.analyze({ rule: sqRule, engine: "suricata", fp: vFp, tp: sqTp, alert: null });
+  var vc = YP.create({ rule: sqRule, engine: "suricata", fp: vFp, tp: sqTp }, vAn).candidates("dog");
+  eq("when the value does not end after the word, the narrow form is not offered", vc.recs.map(function (r) { return r.mode; }), ["window", "anywhere"]);
 
   document.getElementById("summary").innerHTML = '<span class="' + (failed ? "fail" : "pass") + '">' + passed + " passed, " + failed + " failed</span>";
   document.getElementById("out").innerHTML = lines.join("\n");

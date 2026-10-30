@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.9.0 - 2026-10-29
+- Snort/Suricata tuner: new "Tune on the content" step. After a capture is parsed, the page shows the decoded text the rule looked at in each false positive (HTTP URI, request body or raw payload), with the matched words highlighted. Select any text, click a suggestion, or type it, and the page builds exclusions from it.
+- Spots text that is the same in every false positive (for example the table name after a SQL match, `from dog`), without needing a true-positive capture. Attack words, quotes, comment markers and bare short strings are never suggested and cannot be excluded; names attackers aim at (users, admin, password) are allowed only with a warning.
+- Three exclusion shapes per selection, narrowest first: an anchored negated pcre (match, then exactly this text, then the end of the value; flags A and R, plus the buffer flag for Snort 2), a negated content in a window after the match, and a negated content anywhere in the buffer. Each is re-run over both captures.
+- Attacker tests: the page rebuilds the real traffic with changed bytes (an attack appended after the harmless text, the real attack with the harmless text slipped in next to the match or at the end, and attack text you type) and reports which exclusions let it through. An exclusion an attacker can get past is marked high risk and needs an explicit confirmation before the rule text is shown.
+- New example "SQL rule fires on a harmless query". New `site/js/ids-payload.js`; the 7 following sections are renumbered. More checks in `tests/ids-test.html` (255 total).
+- Known limit: only synthetic captures have been tested so far. The simulator tries every match position, which is more generous than the engines, so confirm with `suricata -r` or `snort -r`.
+
 ## 1.8.0 - 2026-10-29
 - Added Highlight tuner (highlight.html): paste an alerting log and a false-positive log, highlight what to tune out, and get a Chronicle rule exclusion (also YARA-L, Sigma, SPL, KQL). The page blocks exclusions that would hide the alerting log, risky activity, or a worse version of the same event, and keeps output locked behind warnings and a checklist. Chronicle output follows Google's docs: UI operators IS and CONTAINS plus the API query form (= "x" nocase, /regex/ nocase); YARA-L output uses only documented forms (!= nocase, not re.regex() nocase, or, parentheses). Tests: tests/hl-test.html (93 checks).
 

@@ -650,7 +650,7 @@ write("ids.html", page(
     "ids.html", "Snort and Suricata Tuner",
     "Load the packet captures and the rule, and get offset, depth, distance, within and buffer recommendations checked against your traffic, for Suricata and Snort.",
     "Snort/Suricata tuner", "Tune a rule with the traffic in hand",
-    "Load a capture of the false positive, optionally a capture of the real activity, and the rule. We show why it fired, where the strings sit, and the narrowest rule change that fixes it, re-checked against both captures.",
+    "Load a capture of the false positive, optionally a capture of the real activity, and the rule. We show why it fired, where the strings sit, the traffic itself so you can tune on its content (select text, such as a table name, to build an exclusion), and the narrowest rule change that fixes it, re-checked against both captures.",
 """          <div class="kit-callout warn">
             <p><strong>Read this first.</strong></p>
             <ul>
@@ -722,7 +722,7 @@ write("ids.html", page(
             <h2>How to do the historical check</h2>
             <div id="ids-historical"></div>
           </div>""",
-    ["network.js", "pcap.js", "pcap-build.js", "ids-engine.js", "ids-tune.js", "ids-data.js", "attack-map.js", "attack-ui.js", "ids-tuner.js"]))
+    ["network.js", "pcap.js", "pcap-build.js", "ids-engine.js", "ids-tune.js", "ids-payload.js", "ids-data.js", "attack-map.js", "attack-ui.js", "ids-tuner.js"]))
 
 # ------------------------------------------------------------------ Highlight tuner
 write("highlight.html", page(

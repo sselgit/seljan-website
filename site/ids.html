@@ -70,7 +70,7 @@
         <div class="section-head">
           <p class="eyebrow">Snort/Suricata tuner</p>
           <h1>Tune a rule with the traffic in hand</h1>
-          <p>Load a capture of the false positive, optionally a capture of the real activity, and the rule. We show why it fired, where the strings sit, and the narrowest rule change that fixes it, re-checked against both captures.</p>
+          <p>Load a capture of the false positive, optionally a capture of the real activity, and the rule. We show why it fired, where the strings sit, the traffic itself so you can tune on its content (select text, such as a table name, to build an exclusion), and the narrowest rule change that fixes it, re-checked against both captures.</p>
         </div>
         <div class="kit-wrap">
 <p class="kit-privacy"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 4v5c0 5-3.5 7.5-8 9-4.5-1.5-8-4-8-9V7z"/><path d="M9 12l2 2 4-4"/></svg><span><strong>Runs only in your browser.</strong> What you paste or load here is never uploaded, saved, or sent anywhere. This page cannot make network requests at all, and it uses no cookies or storage. Reloading or closing the tab clears everything.</span></p>
@@ -178,6 +178,7 @@
   <script src="js/pcap-build.js" defer></script>
   <script src="js/ids-engine.js" defer></script>
   <script src="js/ids-tune.js" defer></script>
+  <script src="js/ids-payload.js" defer></script>
   <script src="js/ids-data.js" defer></script>
   <script src="js/attack-map.js" defer></script>
   <script src="js/attack-ui.js" defer></script>
