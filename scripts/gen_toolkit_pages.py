@@ -25,6 +25,7 @@ REGISTRIES = sorted(set(RIR + ["https://" + h for h in RDAP_HOSTS]))
 TOOLS = [
     ("toolkit.html", "All tools"),
     ("tuner.html", "Rule tuner"),
+    ("highlight.html", "Highlight tuner"),
     ("ids.html", "Snort/Suricata"),
     ("decode.html", "Decoder"),
     ("ioc.html", "Indicators"),
@@ -176,6 +177,7 @@ def write(slug, html):
 # ------------------------------------------------------------------ hub
 offline_cards = [
     ("tuner.html", "Rule tuner", "Paste an alert, its rule and sample logs. Get narrow exclusion suggestions in YARA-L, Sigma, Splunk, Kusto or regex, with guardrails.", "Featured"),
+    ("highlight.html", "Highlight tuner", "Paste the alerting log and the false-positive log, highlight what to tune out, and have the page challenge it before it writes a Chronicle exclusion.", "Featured"),
     ("ids.html", "Snort/Suricata tuner", "Load the false-positive and true-positive captures, paste the rule and alert, and get offset, depth, distance, within and buffer recommendations checked against your traffic.", "Featured"),
     ("decode.html", "Decoder", "Base64, hex, URL, escapes, charcodes, XOR and compressed data. Peels layers automatically and inspects bytes.", ""),
     ("ioc.html", "Indicators", "Defang and refang links and addresses, and pull every indicator out of a block of text.", ""),
@@ -721,6 +723,83 @@ write("ids.html", page(
             <div id="ids-historical"></div>
           </div>""",
     ["network.js", "pcap.js", "pcap-build.js", "ids-engine.js", "ids-tune.js", "ids-data.js", "attack-map.js", "attack-ui.js", "ids-tuner.js"]))
+
+# ------------------------------------------------------------------ Highlight tuner
+write("highlight.html", page(
+    "highlight.html", "Highlight Tuner",
+    "Paste the alerting log and the false-positive log, highlight what to tune out, and get a Chronicle rule exclusion that has been challenged for anything an attacker could hide behind.",
+    "Highlight tuner", "Highlight the noise. Let the page argue back.",
+    "Paste the log that should alert and the log that is a false positive. Drag across what makes the false positive harmless. Before you get any rule text, the page checks it against your alerting log, looks for risky activity, and tries to slip a worse version of the same event past your exclusion.",
+"""          <div class="kit-callout warn">
+            <p><strong>Read this first.</strong></p>
+            <ul>
+              <li><strong>Your logs stay in your browser,</strong> but they can still hold sensitive details. Use <em>Replace my identifying values</em> first if you will share your screen.</li>
+              <li><strong>It only knows what you paste.</strong> Passing the checks means nothing in your samples contradicts the exclusion, not that it is safe. Search history first.</li>
+              <li><strong>Field names are a guess for raw logs.</strong> Chronicle converts raw logs to UDM on Google's side, which this page cannot do. Paste UDM JSON for exact names, or correct each guess in the list.</li>
+              <li><strong>Rule exclusions apply to Google curated detections.</strong> For your own YARA-L rules use the YARA-L option. Syntax is not validated here; test it in your platform.</li>
+            </ul>
+          </div>
+
+          <div class="kit-panel">
+            <h2>1. Paste the two logs</h2>
+            <label class="kit-label" for="hl-al">Alerting log <small>(events the rule is meant to catch: a real or possible true positive)</small></label>
+            <textarea id="hl-al" class="kit tall" spellcheck="false"></textarea>
+            <label class="kit-label" for="hl-fp">False-positive log <small>(the events you want to stop alerting on)</small></label>
+            <textarea id="hl-fp" class="kit tall" spellcheck="false"></textarea>
+            <p class="kit-note">JSON (raw or Chronicle UDM), JSON lines, key=value, CSV or Event Viewer text. Use the same format for both.</p>
+            <div class="kit-row">
+              <button type="button" id="hl-sample" class="btn btn-ghost">Load a sample</button>
+              <button type="button" id="hl-clear" class="btn btn-ghost">Clear everything</button>
+            </div>
+          </div>
+
+          <div class="kit-panel">
+            <h2>2. Replace my identifying values <small>(optional)</small></h2>
+            <label class="kit-check"><input type="checkbox" id="hl-san-ips" checked> Replace IP addresses with generic ones</label>
+            <label class="kit-check"><input type="checkbox" id="hl-san-emails" checked> Replace email addresses</label>
+            <label class="kit-check"><input type="checkbox" id="hl-san-users" checked> Replace user folder names</label>
+            <label class="kit-label" for="hl-san-terms">Anything else to replace <small>(host names, company names, one per line)</small></label>
+            <textarea id="hl-san-terms" class="kit wrap" rows="3" spellcheck="false"></textarea>
+            <div class="kit-row"><button type="button" id="hl-san-run" class="btn">Replace in the boxes above</button></div>
+            <div id="hl-san-out"></div>
+          </div>
+
+          <div class="kit-panel">
+            <h2>3. Load them</h2>
+            <label class="kit-label" for="hl-format">Output format</label>
+            <select id="hl-format" class="kit"></select>
+            <div class="kit-row"><button type="button" id="hl-load" class="btn">Load logs for highlighting</button></div>
+            <div id="hl-load-msg"></div>
+          </div>
+
+          <div id="hl-work" hidden>
+            <div class="kit-panel">
+              <h2>4. Highlight what to tune out</h2>
+              <p class="sub">Drag across text in a false-positive event, or click a field name to use its whole value. Click a field name again to remove it. Green is what your exclusion would hide.
+                The alerting events below turn red if it would hide them too.</p>
+              <div id="hl-fp-view"></div>
+            </div>
+            <div class="kit-panel">
+              <h2>Alerting log: must keep alerting</h2>
+              <div id="hl-al-view"></div>
+            </div>
+            <div class="kit-panel">
+              <h2>5. Your conditions</h2>
+              <p class="sub">All conditions must match for an event to be hidden. "Equals" is the safest. Change the match type or text if the guess is wrong.</p>
+              <div id="hl-conds"></div>
+            </div>
+            <div class="kit-panel">
+              <h2>6. The challenge</h2>
+              <div id="hl-findings"></div>
+            </div>
+            <div class="kit-panel">
+              <h2>7. Confirm and get the exclusion</h2>
+              <div id="hl-check"></div>
+              <input type="hidden" id="hl-showreal-state" value="0">
+              <div id="hl-output" aria-live="polite"></div>
+            </div>
+          </div>""",
+    ["network.js", "tuner-data.js", "tuner-core.js", "hl-core.js", "hl-ui.js"]))
 
 # ------------------------------------------------------------------ lookup pages (use public sources)
 LOOKUP_SCRIPTS = ["network.js", "router.js", "netlookup.js", "lookup-ui.js"]
