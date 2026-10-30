@@ -69,6 +69,25 @@
           tp: PB.pcap(web('203.0.113.9', 50001, 'GET', '/admin/login.php', {}, undefined, 1793188900000))
         };
       } },
+    { id: 'sqli', title: 'SQL rule fires on a harmless query',
+      blurb: 'A SQL injection rule fires on an internal report tool that always queries the "dog" table. Suricata. Shows tuning on the content: select the text after the match in section 7.',
+      engine: 'suricata',
+      rule: 'alert tcp any any -> any 80 (msg:"EXAMPLE SQL injection attempt"; flow:to_server,established; http.uri; content:"select"; nocase; content:"from"; nocase; distance:0; classtype:web-application-attack; sid:1000004; rev:1;)',
+      alert: '10/28/2026-12:00:00.000000  [**] [1:1000004:1] EXAMPLE SQL injection attempt [**] [Classification: Web Application Attack] [Priority: 1] {TCP} 10.0.0.5:40001 -> 192.0.2.10:80',
+      build: function (PB) {
+        function web(client, cport, uri, t0) { return PB.tcpSession({ client: client, server: '192.0.2.10', cport: cport, request: PB.http('GET', uri, {}), response: PB.httpResponse(200, 'ok'), t0: t0 }); }
+        return {
+          fp: PB.pcap(PB.merge(
+            web('10.0.0.5', 40001, '/report?q=select%20name%20from%20dog', 1793188800000),
+            web('10.0.0.5', 40002, '/report?q=select%20age%20from%20dog', 1793188801000),
+            web('10.0.0.6', 40003, '/report?q=select%20name,breed%20from%20dog', 1793188802000),
+            web('10.0.0.6', 40004, '/report?q=SELECT%20owner%20FROM%20dog', 1793188803000),
+            web('10.0.0.7', 40005, '/home', 1793188804000))),
+          tp: PB.pcap(PB.merge(
+            web('203.0.113.9', 50001, '/report?q=1%20union%20select%20password%20from%20users--', 1793188900000),
+            web('203.0.113.9', 50002, '/products?id=9%20and%20(select%20count(*)%20from%20sqlite_master)%3E0', 1793188901000)))
+        };
+      } },
     { id: 'udp', title: 'Command word anywhere in a UDP message',
       blurb: 'A rule for "CMD=" fires on messages that only mention it. Snort 3. Shows offset, depth and a payload size limit.',
       engine: 'snort3',

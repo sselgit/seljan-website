@@ -6,7 +6,7 @@
     var engSel = SK.$('ids-engine');
     if (!engSel || !SK.idsTune) return;
     var IDS = SK.ids, T = SK.idsTune, DATA = SK.idsData, P = SK.pcap;
-    var state = { fp: null, tp: null, an: null, rule: null, alert: null, selected: [], names: {} };
+    var state = { fp: null, tp: null, an: null, rule: null, alert: null, selected: [], names: {}, acks: {}, pay: null };
 
     function chip(text, kind) { return SK.el('span', { className: 'chip2 ' + (kind || ''), text: text }); }
     function callout(kind, kids) { return SK.el('div', { className: 'kit-callout ' + kind }, kids); }
@@ -98,7 +98,7 @@
     SK.$('ids-clear').addEventListener('click', function () {
       ['ids-rule', 'ids-alert'].forEach(function (id) { SK.$(id).value = ''; });
       SK.$('ids-fp-file').value = ''; SK.$('ids-tp-file').value = '';
-      state.fp = state.tp = state.an = null; maskMap = {};
+      state.fp = state.tp = state.an = state.pay = null; state.acks = {}; maskMap = {};
       ['fp', 'tp'].forEach(function (w) { SK.clear(SK.$('ids-' + w + '-info')); });
       SK.$('ids-example-note').textContent = '';
       SK.$('ids-results').hidden = true; SK.clear(SK.$('ids-results'));
@@ -129,7 +129,7 @@
       var an;
       try { an = T.analyze({ rule: rule, engine: engine, fp: state.fp, tp: state.tp, alert: alert }); }
       catch (e) { return problem('Something went wrong while analyzing: ' + e.message); }
-      state.an = an; state.rule = rule; state.alert = alert; maskMap = {};
+      state.an = an; state.rule = rule; state.alert = alert; state.acks = {}; maskMap = {};
       an.notes = notes.concat(an.notes);
       state.selected = an.steps.length ? an.steps.map(function (s) { return s.id; }) : (an.recs.length && an.recs[0].effect && an.recs[0].effect.removesFp > 0 && an.recs[0].effect.keepsTp !== false ? [an.recs[0].id] : []);
       render();
@@ -221,13 +221,17 @@
       if (tpTab) evp.appendChild(tpTab);
       res.appendChild(evp);
 
+      // the traffic itself, and tuning on its content
+      var pp = payloadPanel();
+      if (pp) res.appendChild(pp);
+
       // MITRE ATT&CK
       var ct = /classtype\s*:\s*([\w-]+)/i.exec(state.rule.raw);
       var att = SK.attackPanel ? SK.attackPanel(state.rule.raw + ' ' + (state.alert ? state.alert.msg + ' ' + state.alert.classification : ''), { classtype: ct ? ct[1] : '' }) : null;
       if (att) res.appendChild(att);
 
       // recommendations
-      var rp = SK.el('div', { className: 'kit-panel' }, [SK.el('h2', { text: '7. Recommended changes' }),
+      var rp = SK.el('div', { className: 'kit-panel' }, [SK.el('h2', { text: '8. Recommended changes' }),
         SK.el('p', { className: 'sub', text: 'Each change was re-run against your captures. Tick the ones you want in the tuned rule below.' })]);
       var list = SK.el('div', { className: 'kit-results' });
       if (!an.recs.length) list.appendChild(callout('warn', [para('No rule change separates these captures with the evidence given. See the other options below, and consider whether the rule needs tuning at all.')]));
@@ -243,7 +247,7 @@
       res.appendChild(rp);
 
       // checklist + output
-      var op = SK.el('div', { className: 'kit-panel', attrs: { id: 'ids-output-panel' } }, [SK.el('h2', { text: '8. Your tuned rule' })]);
+      var op = SK.el('div', { className: 'kit-panel', attrs: { id: 'ids-output-panel' } }, [SK.el('h2', { text: '9. Your tuned rule' })]);
       op.appendChild(SK.el('p', { className: 'sub', text: 'The rule text stays locked until each item is confirmed. This page cannot check any of it for you.' }));
       DATA.CHECKS.forEach(function (c, i) {
         var cb = SK.el('input', { attrs: { type: 'checkbox', id: 'ids-ack-' + i } });
@@ -281,6 +285,130 @@
       return SK.el('div', { className: 'kit-result ' + (bad ? 'bad' : (rec.risk === 'high' ? 'warn' : 'good')) }, kids);
     }
 
+    /* ---------- the traffic and tuning on its content ---------- */
+
+    // The offsets of the current text selection inside a box whose only content is the payload text.
+    function selectionIn(box) {
+      var sel = window.getSelection();
+      if (!sel || sel.isCollapsed || !sel.rangeCount) return null;
+      var r = sel.getRangeAt(0);
+      if (!box.contains(r.startContainer) || !box.contains(r.endContainer)) return null;
+      var pre = document.createRange(); pre.selectNodeContents(box); pre.setEnd(r.startContainer, r.startOffset);
+      var a = pre.toString().length;
+      return { a: a, b: a + r.toString().length };
+    }
+
+    function payloadPanel() {
+      var Y = SK.idsPayload, an = state.an;
+      if (!Y || !an.fpAlerts.length) return null;
+      var yc = Y.create({ rule: state.rule, engine: an.engine, fp: state.fp, tp: state.tp }, an);
+      var views = yc.views(8), opps = yc.opportunities();
+      var panel = SK.el('div', { className: 'kit-panel', attrs: { id: 'ids-payload-panel' } }, [SK.el('h2', { text: '7. Tune on the content' }),
+        SK.el('p', { className: 'sub', text: 'This is the traffic the rule looked at, decoded. Select any text (for example a table name after a SQL match), or click a suggestion, to see exclusions you could build. Each one is re-run over your captures and then attacked with changed traffic.' })]);
+
+      // suggestions: text that is the same in the false positives
+      var oppBox = SK.el('div', { className: 'kit-opps' });
+      if (opps.length) {
+        panel.appendChild(SK.el('h3', { text: 'Spotted in the false positives' }));
+        panel.appendChild(SK.el('p', { className: 'kit-note', text: 'Plain words right after the match, ranked by how many alerts have them. Attack words, quotes and comment markers are never suggested.' }));
+        opps.forEach(function (o) {
+          var b = SK.el('button', { className: 'kit-opp', attrs: { type: 'button', title: 'Appears ' + o.gapMin + (o.gapMin === o.gapMax ? '' : ' to ' + o.gapMax) + ' bytes after the match' } },
+            [o.x, SK.el('small', { text: o.alerts + ' of ' + o.total + ' alerts' })]);
+          b.addEventListener('click', function () { choose(o.x); });
+          oppBox.appendChild(b);
+        });
+        panel.appendChild(oppBox);
+      }
+
+      // the payloads
+      panel.appendChild(SK.el('h3', { text: 'What the rule matched, in each false positive' }));
+      if (state.fp && SK.$('ids-mask').checked && views.items.some(function (v) { return /\b\d{1,3}(?:\.\d{1,3}){3}\b/.test(v.text); })) {
+        panel.appendChild(callout('warn', [para('Some payloads contain an address-like value. Address masking is not applied inside this view, because it would shift the positions you select. Hide this panel before sharing your screen.')]));
+      }
+      var boxes = [];
+      views.items.forEach(function (v) {
+        var head = v.session.client.ip + ':' + v.session.client.port + (v.dir === 'toServer' ? ' to ' : ' from ') + v.session.server.ip + ':' + v.session.server.port;
+        panel.appendChild(SK.el('div', { className: 'kit-pay-head' }, [SK.el('strong', { text: mask(head) }), chip(IDS.bufferLabel(v.buffer)), v.count > 1 ? chip(v.count + ' identical alerts') : null]));
+        var box = SK.el('div', { className: 'kit-ctx kit-pay mono', attrs: { tabindex: '0', role: 'textbox', 'aria-readonly': 'true', 'aria-label': 'Payload text. Select a piece to build an exclusion from it.' } });
+        var shown = Y.display(v.text), pos = 0;
+        v.ranges.slice().sort(function (a, b) { return a.s - b.s; }).forEach(function (r) {
+          if (r.s < pos) return;
+          if (r.s > pos) box.appendChild(document.createTextNode(shown.slice(pos, r.s)));
+          box.appendChild(SK.el('span', { className: 'kit-hit', text: shown.slice(r.s, r.e) })); pos = r.e;
+        });
+        if (pos < shown.length) box.appendChild(document.createTextNode(shown.slice(pos)));
+        box.addEventListener('mouseup', function () { var s = selectionIn(box); if (s) choose(v.text.slice(s.a, s.b).replace(/^\s+|\s+$/g, '')); });
+        box.addEventListener('keyup', function (ev) { if (ev.shiftKey) { var s = selectionIn(box); if (s) choose(v.text.slice(s.a, s.b).replace(/^\s+|\s+$/g, '')); } });
+        boxes.push(box);
+        panel.appendChild(box);
+      });
+      if (views.distinct > views.items.length) panel.appendChild(para('Showing ' + views.items.length + ' of ' + views.distinct + ' different payloads (' + views.total + ' alerts).'));
+
+      // typed text and the attack to test with
+      var xIn = SK.el('input', { className: 'kit', attrs: { type: 'text', id: 'ids-pay-x', placeholder: 'or type the text, for example dog', 'aria-label': 'Text to exclude', autocomplete: 'off', spellcheck: 'false' } });
+      var atkIn = SK.el('input', { className: 'kit', attrs: { type: 'text', id: 'ids-pay-attack', 'aria-label': 'Attack text to test with', autocomplete: 'off', spellcheck: 'false' } });
+      atkIn.value = yc.defaultAttack();
+      var go = SK.el('button', { className: 'btn', text: 'Show exclusions', attrs: { type: 'button' } });
+      var out = SK.el('div', { attrs: { id: 'ids-pay-out', 'aria-live': 'polite' } });
+      panel.appendChild(SK.el('label', { className: 'kit-label', attrs: { 'for': 'ids-pay-x' } }, ['Text to build an exclusion from']));
+      panel.appendChild(xIn);
+      panel.appendChild(SK.el('label', { className: 'kit-label', attrs: { 'for': 'ids-pay-attack' } }, ['Attack text to try ', SK.el('small', { text: '(added after the harmless text to see whether the exclusion lets it through; leave empty to skip)' })]));
+      panel.appendChild(atkIn);
+      panel.appendChild(SK.el('div', { className: 'kit-row' }, [go]));
+      panel.appendChild(out);
+
+      function choose(x) { x = String(x || ''); xIn.value = x; show(); }
+      function show() {
+        SK.clear(out);
+        var x = xIn.value.replace(/^\s+|\s+$/g, '');
+        if (!x) { out.appendChild(callout('warn', [para('Select some text in a payload above, click a suggestion, or type it.')])); return; }
+        var res;
+        try { res = yc.candidates(x, atkIn.value); } catch (e) { out.appendChild(callout('bad', [para('Could not build an exclusion: ' + e.message)])); return; }
+        out.appendChild(SK.el('h3', { text: 'Exclusions for "' + x + '"' }));
+        if (res.locked) { out.appendChild(callout('bad', [para('This text cannot be excluded. ' + res.reason)])); return; }
+        res.notes.forEach(function (n) { out.appendChild(callout('warn', [para(n)])); });
+        if (!state.an.hasTp) out.appendChild(callout('warn', [para('No true-positive capture was loaded, so nothing here is checked against real attacks. The attack test below uses only the text you typed or the default.')]));
+        res.recs.forEach(function (rec) { out.appendChild(payCard(rec, res.recs)); });
+      }
+      go.addEventListener('click', show);
+      xIn.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') { ev.preventDefault(); show(); } });
+      atkIn.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') { ev.preventDefault(); show(); } });
+      return panel;
+    }
+
+    function payCard(rec, siblings) {
+      var an = state.an, e = rec.effect, bad = e && e.keepsTp === false;
+      var cb = SK.el('input', { attrs: { type: 'checkbox', id: 'ids-rec-' + rec.id, 'aria-label': 'Include in tuned rule' } });
+      cb.checked = state.selected.indexOf(rec.id) >= 0;
+      cb.addEventListener('change', function () {
+        if (cb.checked) {
+          if (!an.others.some(function (o) { return o.id === rec.id; })) an.others.push(rec);
+          siblings.forEach(function (s) {            // one shape per text: the others are alternatives
+            if (s.id === rec.id) return;
+            var j = state.selected.indexOf(s.id); if (j >= 0) state.selected.splice(j, 1);
+            var other = SK.$('ids-rec-' + s.id); if (other) other.checked = false;
+          });
+          if (state.selected.indexOf(rec.id) < 0) state.selected.push(rec.id);
+        } else {
+          var i = state.selected.indexOf(rec.id); if (i >= 0) state.selected.splice(i, 1);
+        }
+        renderOutput();
+      });
+      var head = SK.el('h4', {}, [cb, SK.el('span', { text: rec.title })]);
+      var kids = [head, SK.el('div', { className: 'kit-chips' }, effectChips(e).concat([riskChip(rec.risk || 'medium'), rec.bypassed ? chip('Attacker can get past', 'bad') : (rec.tests.length ? chip('Passed ' + rec.tests.filter(function (t) { return t.valid; }).length + ' attack test' + (rec.tests.filter(function (t) { return t.valid; }).length === 1 ? '' : 's'), 'good') : chip('No attack test ran', 'warn'))])),
+        SK.el('div', { className: 'kit-out', text: rec.change })];
+      (rec.why || []).forEach(function (w) { kids.push(para(w)); });
+      if (rec.warn) kids.push(callout('warn', [para(rec.warn)]));
+      if (rec.tests.length) {
+        var t = SK.el('table', { className: 'kit-tests' });
+        rec.tests.forEach(function (x) {
+          t.appendChild(SK.el('tr', {}, [SK.el('td', { text: x.name }), SK.el('td', {}, [x.valid ? chip(x.caught ? 'Rule still alerts' : 'Got past the rule', x.caught ? 'good' : 'bad') : chip('Test not valid: the original rule did not fire', 'warn')])]));
+        });
+        kids.push(SK.el('div', { className: 'kit-table-wrap' }, [t]));
+      } else kids.push(para('No attack test ran. Type attack text above' + (an.hasTp ? '.' : ' or add a true-positive capture.')));
+      return SK.el('div', { className: 'kit-result ' + (bad ? 'bad' : (rec.bypassed || rec.risk === 'high' ? 'warn' : 'good')) }, kids);
+    }
+
     function acknowledged() {
       for (var i = 0; i < DATA.CHECKS.length; i++) { var c = SK.$('ids-ack-' + i); if (!c || !c.checked) return false; }
       return true;
@@ -291,6 +419,16 @@
       SK.clear(box);
       if (!acknowledged()) { box.appendChild(callout('warn', [para('Locked. Confirm the checklist above to see the rule text. This is deliberate: a tuning change is only safe after you have checked the history.')])); return; }
       var an = state.an, picked = state.selected.slice();
+      var needs = an.others.filter(function (o) { return o.needsAck && picked.indexOf(o.id) >= 0; });
+      if (needs.length) {
+        needs.forEach(function (o) {
+          var ack = SK.el('input', { attrs: { type: 'checkbox', id: 'ids-pay-ack-' + o.id } });
+          ack.checked = !!state.acks[o.id];
+          ack.addEventListener('change', function () { state.acks[o.id] = ack.checked; renderOutput(); });
+          box.appendChild(SK.el('label', { className: 'kit-check', attrs: { 'for': 'ids-pay-ack-' + o.id } }, [ack, o.ackText || 'I understand this exclusion can be copied by an attacker.']));
+        });
+        if (needs.some(function (o) { return !state.acks[o.id]; })) { box.appendChild(callout('warn', [para('Locked. Confirm the risk above for each content exclusion you picked.')])); return; }
+      }
       if (!picked.length) { box.appendChild(callout('warn', [para('Nothing is selected. Tick at least one change above, or keep the original rule.')])); }
       var comp = picked.length ? an.compose(picked) : null;
       var text = comp ? comp.ruleText : state.rule.raw;

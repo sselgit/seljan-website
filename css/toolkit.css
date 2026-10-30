@@ -147,3 +147,14 @@ details.kit-details > :last-child { margin-bottom: 14px; }
 .hl-cond { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 2fr) auto; gap: 10px; align-items: end; margin-bottom: 10px; }
 .hl-cond-rm { align-self: end; }
 @media (max-width: 720px) { .hl-cond { grid-template-columns: minmax(0, 1fr); } }
+
+/* Payload viewer (Snort/Suricata tuner) */
+.kit-pay { max-height: 14em; overflow: auto; user-select: text; cursor: text; color: var(--text); }
+.kit-pay:focus-visible { outline: 3px solid var(--red-light); outline-offset: 2px; }
+.kit-pay-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: var(--heading); margin-top: 10px; }
+.kit-opps { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 12px; }
+.kit-opp { font: inherit; cursor: pointer; border: 1px solid var(--line); background: var(--bg-alt); color: var(--heading); border-radius: 999px; padding: 6px 12px; }
+.kit-opp:hover, .kit-opp:focus-visible { border-color: var(--link); }
+.kit-opp small { color: var(--muted); margin-left: 6px; }
+.kit-tests { width: 100%; border-collapse: collapse; font-size: 0.88rem; margin: 6px 0 4px; }
+.kit-tests td { padding: 4px 6px; border-top: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
