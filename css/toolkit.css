@@ -130,3 +130,20 @@ details.kit-details > :last-child { margin-bottom: 14px; }
   font: 0.85rem/1.5 ui-monospace, "Cascadia Code", Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted); }
 .kit-hit { background: rgba(245, 158, 11, 0.28); color: var(--heading); border-radius: 3px; padding: 0 2px; font-weight: 700; }
 .kit-result h4 input[type="checkbox"] { margin-right: 8px; }
+
+/* Highlight tuner */
+.hl-event { border: 1px solid var(--line); border-radius: 10px; background: var(--bg-alt); padding: 10px 12px; margin: 0 0 10px; min-width: 0; }
+.hl-event.hl-bad { border-color: #EF4444; background: rgba(239, 68, 68, 0.10); }
+.hl-event-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 6px; color: var(--heading); }
+.hl-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+.hl-table td { padding: 3px 6px; vertical-align: top; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+.hl-key { width: 1%; white-space: nowrap; color: var(--muted); }
+.hl-keybtn { background: none; border: 0; padding: 0; font: inherit; color: var(--link); cursor: pointer; text-decoration: underline dotted; }
+.hl-val { color: var(--text); white-space: pre-wrap; }
+.hl-sel { cursor: text; user-select: text; }
+.hl-mark { color: var(--heading); border-radius: 3px; padding: 0 1px; }
+.hl-mark.good { background: rgba(16, 185, 129, 0.35); }
+.hl-mark.bad { background: rgba(239, 68, 68, 0.45); }
+.hl-cond { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 2fr) auto; gap: 10px; align-items: end; margin-bottom: 10px; }
+.hl-cond-rm { align-self: end; }
+@media (max-width: 720px) { .hl-cond { grid-template-columns: minmax(0, 1fr); } }
