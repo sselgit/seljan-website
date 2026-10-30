@@ -476,6 +476,16 @@
   // checks
   eq("attack text cannot be excluded", ["union", "' or 1=1", "a;b", "x=1", "/*c*/", "ab"].map(function (x) { return YP.check(x).locked; }), [true, true, true, true, true, true]);
   eq("a plain word is allowed", YP.check("dog").locked, false);
+  eq("credentials, tokens and hashes cannot be excluded", ["bGlsaXRoOkluYXJpdXM", "eyJhbGciOiJIUzI1NiJ9.abc123def456", "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08", "AbCdEfGhIjKlMnOpQr"].map(function (x) { return YP.check(x).locked; }), [true, true, true, true]);
+  eq("ordinary long names are still allowed", [YP.check("inventory_archive_2").locked, YP.check("customer-orders").locked, YP.check("internalreportingdb").locked, YP.check("OrderHistory").locked], [false, false, false, false]);
+  // regression from a real capture: Basic auth tokens after "Authorization: Basic" were suggested
+  var baFp = await read(PB.pcap(PB.merge(PB.tcpSession({ client: "10.0.0.5", server: "192.0.2.10", cport: 40001, request: PB.http("GET", "/", { Authorization: "Basic dXNlcjE6cGFzczEyMw" }), response: PB.httpResponse(200, "ok"), t0: 1793188800000 }), PB.tcpSession({ client: "10.0.0.6", server: "192.0.2.10", cport: 40002, request: PB.http("GET", "/", { Authorization: "Basic dXNlcjE6cGFzczEyMw" }), response: PB.httpResponse(200, "ok"), t0: 1793188801000 }))));
+  var baRule = IDS.parseRule('alert tcp any any -> any 80 (msg:"x"; flow:to_server,established; http.header; content:"Authorization|3a| Basic"; nocase; sid:5; rev:1;)', "suricata");
+  var baAn = TU.analyze({ rule: baRule, engine: "suricata", fp: baFp, tp: null, alert: null });
+  var rawRule = IDS.parseRule('alert tcp any any -> any 80 (msg:"x"; flow:to_server,established; content:"GET"; content:"HTTP/1.1"; distance:0; sid:6; rev:1;)', "suricata");
+  var rawAn = TU.analyze({ rule: rawRule, engine: "suricata", fp: baFp, tp: null, alert: null });
+  eq("suggestions stop at the end of the line (no header names from later lines)", YP.create({ rule: rawRule, engine: "suricata", fp: baFp, tp: null }, rawAn).opportunities().length, 0);
+  eq("basic-auth tokens are never suggested", [baAn.fp.alerts, YP.create({ rule: baRule, engine: "suricata", fp: baFp, tp: null }, baAn).opportunities().length], [2, 0]);
   truthy("a sensitive name is allowed but warned", !YP.check("users").locked && YP.check("users").warns.length > 0);
   truthy("locked text returns no exclusions", yc.candidates("union").locked === true && yc.candidates("union").recs.length === 0);
   eq("text that is not in the traffic gives a note, not a rule", [yc.candidates("cat").recs.length, yc.candidates("cat").notes.length > 0], [0, true]);

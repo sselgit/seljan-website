@@ -55,12 +55,22 @@
   ];
   var SENSITIVE = /\b(users?|admin\w*|passwords?|passwd|pwd|pass|logins?|accounts?|customers?|credentials?|secrets?|tokens?|sessions?|mysql|master|sys\w*|shadow|credit\w*|cards?|ssn|payments?|employees?|auth\w*)\b/i;
 
+  // Basic-auth blobs, JWTs, session IDs, API keys and hashes: long, one word, and not plain letters.
+  // Safe side: one long word of letters and digits with a capital letter or a digit in it is treated as a secret.
+  // Names written by people are short or all lower case; a long camelCase name just needs a shorter selection.
+  function looksSecret(x) {
+    var s = x.replace(/\s+$/, '');
+    if (/^[A-Fa-f0-9]{24,}$/.test(s)) return true;
+    return s.split(/[_\-.]/).some(function (seg) { return seg.length >= 16 && /^[A-Za-z0-9+\/=]+$/.test(seg) && /[A-Z0-9]/.test(seg); });
+  }
+
   // Decide whether a piece of text may be offered for exclusion. { locked, reason, warns }.
   Y.check = function (x) {
     x = String(x == null ? '' : x);
     if (x.length < 3) return { locked: true, reason: 'Too short. Text of one or two characters appears everywhere, so excluding it would blind the rule.', warns: [] };
     if (x.length > 120) return { locked: true, reason: 'Too long to be a safe exclusion. Select a shorter piece.', warns: [] };
     if (/[\x00-\x08\x0b-\x1f\x7f-\xff]/.test(x)) return { locked: true, reason: 'It has control or non-text bytes.', warns: [] };
+    if (looksSecret(x)) return { locked: true, reason: 'It looks like a credential, session token or other secret (a long run of letters and digits). Excluding it would whitelist one login or session and would put the secret into your rule.', warns: [] };
     for (var i = 0; i < ATTACK_TESTS.length; i++) if (ATTACK_TESTS[i][0].test(x)) return { locked: true, reason: ATTACK_TESTS[i][1], warns: [] };
     var warns = [];
     if (SENSITIVE.test(x)) warns.push('"' + x + '" is the kind of name an attacker goes after (accounts, passwords, admin). Only exclude it if this really is harmless data in your application.');
@@ -79,7 +89,7 @@
       var f = Y.focus(a); if (!f) return;
       n++;
       var after = f.str.slice(f.lastEnd, f.lastEnd + 120);
-      var cut = after.search(/[&;'"`()#<>|\\=]|--|\/\*/);
+      var cut = after.search(/[&;'"`()#<>|\\=\r\n]|--|\/\*/);
       var span = cut >= 0 ? after.slice(0, cut) : after;
       var re = /[A-Za-z_][A-Za-z0-9_.\-]*/g, m, mine = {};
       while ((m = re.exec(span))) {
