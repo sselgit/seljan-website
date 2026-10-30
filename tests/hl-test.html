@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Highlight tuner tests</title>
+<style>
+  body { font: 14px/1.5 ui-monospace, Consolas, monospace; margin: 24px; }
+  .pass { color: #166534; } .fail { color: #991B1B; font-weight: bold; }
+  #summary { font-size: 18px; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+<h1>Highlight tuner tests</h1>
+<div id="summary">Running...</div>
+<pre id="out"></pre>
+<script src="../site/js/kit.js"></script>
+<script src="../site/js/network.js"></script>
+<script src="../site/js/tuner-data.js"></script>
+<script src="../site/js/tuner-core.js"></script>
+<script src="../site/js/hl-core.js"></script>
+<script>
+(function () {
+  var SK = window.SK, X = SK.tuner, H = SK.hl;
+  var lines = [], failed = 0, passed = 0;
+  function log(ok, name, detail) {
+    if (ok) passed++; else failed++;
+    lines.push('<span class="' + (ok ? "pass" : "fail") + '">' + (ok ? "PASS " : "FAIL ") + name + (ok || !detail ? "" : "  -> " + detail) + "</span>");
+  }
+  function eq(name, actual, expected) { var a = JSON.stringify(actual), e = JSON.stringify(expected); log(a === e, name, "expected " + e + " got " + a); }
+  function truthy(name, v, detail) { log(!!v, name, detail || String(v)); }
+  function has(name, findings, level, titlePart) {
+    var hit = findings.some(function (f) { return f.level === level && f.title.indexOf(titlePart) >= 0; });
+    log(hit, name, "no " + level + " finding containing '" + titlePart + "' in: " + findings.map(function (f) { return f.level + ":" + f.title; }).join(" | "));
+  }
+  function lacks(name, findings, titlePart) {
+    var hit = findings.some(function (f) { return f.title.indexOf(titlePart) >= 0; });
+    log(!hit, name, "unexpected finding containing '" + titlePart + "'");
+  }
+  function C(k, m, v) { return { key: k, udm: H.udmFor(k), mode: m, value: v }; }
+
+  var fp = X.parseLogs(H.SAMPLE.fp).events, al = X.parseLogs(H.SAMPLE.alerting).events;
+  var PAR = 'C:\\Program Files\\NorthwindBackup\\nbagent.exe';
+  var PS = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
+  var CMD0 = 'powershell.exe -File "C:\\Program Files\\NorthwindBackup\\scripts\\nightly.ps1" -Job 4410';
+
+  // ================= sample and parsing =================
+  eq("sample parses: 3 fp, 2 alerting", [fp.length, al.length], [3, 2]);
+  truthy("sample is raw, not UDM", !H.looksLikeUdm(fp));
+  truthy("UDM detection", H.looksLikeUdm([{ "principal.hostname": "a", "target.process.command_line": "b", "metadata.event_type": "c" }]));
+
+  // ================= UDM field guesses =================
+  eq("udm: CommandLine", H.udmFor("CommandLine"), "target.process.command_line");
+  eq("udm: ParentImage", H.udmFor("ParentImage"), "principal.process.file.full_path");
+  eq("udm: Computer", H.udmFor("Computer"), "principal.hostname");
+  eq("udm: nested key uses leaf", H.udmFor("EventData.User"), "principal.user.userid");
+  eq("udm: already UDM is kept", H.udmFor("principal.hostname"), "principal.hostname");
+  eq("udm: array index stripped", H.udmFor("security_result[0].summary"), "security_result.summary");
+  eq("udm: unknown is empty", H.udmFor("Zork"), "");
+
+  // ================= selection to condition =================
+  eq("whole value -> exact", H.condFromSelection("K", "abcdef", 0, 6).mode, "exact");
+  eq("from start -> startswith", H.condFromSelection("K", "abcdef", 0, 3).mode, "startswith");
+  eq("to end -> endswith", H.condFromSelection("K", "abcdef", 3, 6).mode, "endswith");
+  eq("middle -> contains", H.condFromSelection("K", "abcdef", 2, 4), { key: "K", udm: "", mode: "contains", value: "cd" });
+
+  // ================= matching =================
+  var ev = { Image: PS, CommandLine: CMD0 };
+  truthy("match exact (case-insensitive)", H.matchCond(C("Image", "exact", PS.toUpperCase()), ev));
+  truthy("match startswith", H.matchCond(C("CommandLine", "startswith", "powershell.exe -File"), ev));
+  truthy("match endswith", H.matchCond(C("CommandLine", "endswith", "-Job 4410"), ev));
+  truthy("match contains", H.matchCond(C("CommandLine", "contains", "nightly.ps1"), ev));
+  truthy("match regex", H.matchCond(C("CommandLine", "regex", "-Job \\d+$"), ev));
+  truthy("no match: missing field", !H.matchCond(C("Nope", "contains", "x"), ev));
+  truthy("no match: empty value", !H.matchCond(C("Image", "contains", ""), ev));
+  truthy("no match: bad regex", !H.matchCond(C("Image", "regex", "("), ev));
+  truthy("no match: endswith longer than value", !H.matchCond(C("Image", "endswith", PS + "x"), ev));
+  truthy("matchAll needs every condition", !H.matchAll([C("Image", "exact", PS), C("CommandLine", "exact", "other")], ev));
+  truthy("matchAll with no conditions is false", !H.matchAll([], ev));
+  eq("span exact", H.span(C("K", "exact", "abc"), "ABC"), [0, 3]);
+  eq("span endswith", H.span(C("K", "endswith", "ef"), "abcdef"), [4, 6]);
+  eq("span contains", H.span(C("K", "contains", "cd"), "abcdef"), [2, 4]);
+  eq("span regex", H.span(C("K", "regex", "c.e"), "abcdef"), [2, 5]);
+  eq("span no match", H.span(C("K", "startswith", "zz"), "abcdef"), null);
+
+  // ================= the challenge =================
+  var r;
+  r = H.challenge([], fp, al);
+  eq("empty: blocked", r.verdict, "block");
+  has("empty: says nothing highlighted", r.findings, "block", "Nothing is highlighted");
+
+  r = H.challenge([C("Image", "exact", PS)], fp, al);
+  eq("powershell only: blocked, hides both logs", [r.verdict, r.fpHit, r.aHit], ["block", 3, 2]);
+  has("powershell only: hides alerting log", r.findings, "block", "hide 2 of 2");
+  has("powershell only: common program", r.findings, "block", "common program");
+  has("powershell only: flags Office child", r.findings, "block", "Office program");
+  has("powershell only: flags encoded", r.findings, "block", "Encoded");
+
+  r = H.challenge([C("User", "exact", "NT AUTHORITY\\SYSTEM")], fp, al);
+  has("user only: broad field", r.findings, "block", "Only broad fields");
+  r = H.challenge([C("Computer", "exact", "SRV-APP01")], fp, al);
+  has("host only: broad field", r.findings, "block", "Only broad fields");
+  r = H.challenge([C("Computer", "exact", "SRV-APP01"), C("User", "exact", "NT AUTHORITY\\SYSTEM")], fp, al);
+  has("host + user: still broad", r.findings, "block", "Only broad fields");
+
+  r = H.challenge([C("ParentImage", "exact", PAR)], fp, al);
+  eq("parent only: hides fp not alerting", [r.fpHit, r.aHit], [3, 0]);
+  has("parent only: one field warning", r.findings, "warn", "Only one field");
+  has("parent only: encoded payload bypass is a block", r.findings, "block", "encoded PowerShell payload");
+  has("parent only: download bypass is a block", r.findings, "block", "download-and-run");
+  has("parent only: applies everywhere note", r.findings, "info", "every host and user");
+  lacks("parent only: no risky activity in fp", r.findings, "Would hide risky");
+
+  r = H.challenge([C("ParentImage", "exact", PAR), C("CommandLine", "exact", CMD0)], fp, al);
+  eq("parent + exact cmd: hides 1 fp (job number differs)", r.fpHit, 1);
+  lacks("parent + exact cmd: no cmd bypass", r.findings, "encoded PowerShell");
+  has("parent + exact cmd: partial coverage note", r.findings, "info", "Hides 1 of 3");
+  has("parent + exact cmd: image copy bypass is a warning", r.findings, "warn", "program copied");
+
+  var good = [C("ParentImage", "exact", PAR), C("Image", "exact", PS),
+    C("CommandLine", "regex", '^powershell\\.exe -File "C:\\\\Program Files\\\\NorthwindBackup\\\\scripts\\\\nightly\\.ps1" -Job \\d+$'),
+    C("Computer", "regex", "^SRV-(APP|DB)01$")];
+  r = H.challenge(good, fp, al);
+  eq("narrow exclusion: ok, hides all fp and no alerting", [r.verdict, r.fpHit, r.aHit], ["ok", 3, 0]);
+  eq("narrow exclusion: no findings at all", r.findings.length, 0);
+
+  r = H.challenge([C("CommandLine", "contains", "powershell.exe")], fp, al);
+  has("contains: warned", r.findings, "warn", "Contains");
+  has("contains powershell: hides alerting", r.findings, "block", "alerting log");
+  r = H.challenge([C("CommandLine", "contains", "-F"), C("ParentImage", "exact", PAR)], fp, al);
+  has("short fragment: warned", r.findings, "warn", "Very short");
+  r = H.challenge([C("UtcTime", "exact", "2026-10-20 02:00:04"), C("ParentImage", "exact", PAR)], fp, al);
+  has("volatile field: warned", r.findings, "warn", "changes every time");
+  r = H.challenge([C("CommandLine", "regex", "("), C("ParentImage", "exact", PAR)], fp, al);
+  has("bad regex: block", r.findings, "block", "does not compile");
+  lacks("bad regex: no 'would not hide' noise", r.findings, "would not hide");
+  r = H.challenge([C("CommandLine", "regex", ".*"), C("ParentImage", "exact", PAR)], fp, al);
+  has("regex .*: block", r.findings, "block", "matches everything");
+  r = H.challenge([C("CommandLine", "regex", ".*nightly"), C("ParentImage", "exact", PAR)], fp, al);
+  has("regex leading wildcard: warned", r.findings, "warn", "wildcard");
+  r = H.challenge([C("ParentImage", "exact", "C:\\nope.exe")], fp, al);
+  has("no fp match: block", r.findings, "block", "would not hide any");
+  r = H.challenge([C("Image", "exact", "C:\\Users\\Public\\tool.exe"), C("ParentImage", "exact", PAR)], fp, al);
+  has("writable folder: warned", r.findings, "warn", "any user can write");
+  r = H.challenge([C("Image", "exact", ""), C("ParentImage", "exact", PAR)], fp, al);
+  has("empty value: block", r.findings, "block", "Empty value");
+
+  // Risky fp events are never tunable.
+  var riskyFp = X.parseLogs('{"Computer":"WS-1","User":"CORP\\\\a","ParentImage":"C:\\\\Program Files\\\\Microsoft Office\\\\root\\\\Office16\\\\WINWORD.EXE","Image":"' + PS.replace(/\\/g, '\\\\') + '","CommandLine":"powershell.exe -File x.ps1"}').events;
+  r = H.challenge([C("ParentImage", "exact", "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE"), C("CommandLine", "exact", "powershell.exe -File x.ps1")], riskyFp, al);
+  has("Office->PowerShell fp: blocked as risky", r.findings, "block", "Office program");
+
+  // UDM logs work the same way.
+  var udmFp = [{ "principal.hostname": "SRV-APP01", "principal.process.file.full_path": PAR, "target.process.file.full_path": PS, "target.process.command_line": CMD0, "principal.user.userid": "SYSTEM" }];
+  var udmAl = [{ "principal.hostname": "WS-1", "principal.process.file.full_path": "C:\\Program Files\\Microsoft Office\\root\\Office16\\EXCEL.EXE", "target.process.file.full_path": PS, "target.process.command_line": "powershell.exe -enc AAAAAAAAAAAAAAAAAAAAAAAA", "principal.user.userid": "jsmith" }];
+  r = H.challenge([C("principal.user.userid", "exact", "SYSTEM")], udmFp, udmAl);
+  has("udm: user only is broad", r.findings, "block", "Only broad fields");
+  r = H.challenge([C("principal.hostname", "exact", "SRV-APP01")], udmFp, udmAl);
+  has("udm: host only is broad", r.findings, "block", "Only broad fields");
+  r = H.challenge([C("target.process.file.full_path", "exact", PS)], udmFp, udmAl);
+  has("udm: powershell only hides alerting", r.findings, "block", "alerting log");
+  has("udm: powershell only flags Office child", r.findings, "block", "Office program");
+  r = H.challenge([C("principal.process.file.full_path", "exact", PAR), C("target.process.command_line", "exact", CMD0), C("target.process.file.full_path", "exact", PS)], udmFp, udmAl);
+  eq("udm: narrow exclusion passes", [r.verdict, r.fpHit, r.aHit], ["ok", 1, 0]);
+
+  // ================= writers =================
+  var conds = [C("ParentImage", "exact", PAR), C("CommandLine", "startswith", 'powershell.exe -File "C:\\x y.ps1"')];
+  var meta = { ref: "TUNE-1", owner: "Me", reviewBy: "2027-01-01", basis: "3 events" };
+  var t = H.write("chronicle", conds, meta);
+  truthy("chronicle: header", t.indexOf("# Tuning exclusion TUNE-1") === 0, t);
+  truthy("chronicle: udm field", t.indexOf("UDM field: principal.process.file.full_path") > 0);
+  truthy("chronicle: match type", t.indexOf("Match type: starts with") > 0);
+  truthy("chronicle: value", t.indexOf("Value: " + PAR) > 0);
+  truthy("chronicle: AND note", /combined with AND/.test(t));
+  truthy("chronicle: blank for unknown udm", H.write("chronicle", [C("Zork", "exact", "x")], {}).indexOf("<fill in the UDM field for Zork>") > 0);
+
+  t = H.write("yaral", conds, meta);
+  truthy("yaral: not ( a and b )", /^not \(\$e\.principal\.process\.file\.full_path = ".*" nocase and re\.regex\(\$e\.target\.process\.command_line, `\(\?i\)\^powershell\\\.exe -File "C:\\\\x y\\\.ps1"`\)\)$/m.test(t), t);
+  truthy("yaral: single condition has no parens", /^not \$e\./m.test(H.write("yaral", [conds[0]], {})));
+  truthy("yaral: regex mode passed through", H.write("yaral", [C("CommandLine", "regex", "-Job \\d+$")], {}).indexOf("`(?i)-Job \\d+$`") > 0);
+  truthy("yaral: backslashes escaped in string", H.write("yaral", [conds[0]], {}).indexOf('"C:\\\\Program Files\\\\NorthwindBackup\\\\nbagent.exe"') > 0);
+
+  t = H.write("sigma", conds, meta);
+  truthy("sigma: exclusion block", t.indexOf("exclusion:\n    ParentImage: 'C:\\Program Files\\NorthwindBackup\\nbagent.exe'\n    CommandLine|startswith: 'powershell.exe -File \"C:\\x y.ps1\"'") > 0, t);
+  truthy("sigma: regex modifier", H.write("sigma", [C("CommandLine", "regex", "a'b")], {}).indexOf("CommandLine|re: 'a''b'") > 0);
+
+  t = H.write("splunk", conds, meta);
+  truthy("splunk: NOT with wildcards", t.indexOf('| search NOT (ParentImage="C:\\\\Program Files\\\\NorthwindBackup\\\\nbagent.exe" AND CommandLine="powershell.exe -File \\"C:\\\\x y.ps1\\"*")') >= 0, t);
+  truthy("splunk: regex uses where/match", H.write("splunk", [C("CommandLine", "regex", "x+")], {}).indexOf('| where NOT (match(CommandLine, "x+"))') >= 0);
+  truthy("splunk: comments", t.indexOf('`comment("Tuning exclusion TUNE-1")`') === 0);
+
+  t = H.write("kql", conds, meta);
+  truthy("kql: where not", t.indexOf('| where not (ParentImage =~ @"C:\\Program Files\\NorthwindBackup\\nbagent.exe" and CommandLine startswith @"powershell.exe -File ""C:\\x y.ps1""")') >= 0, t);
+  truthy("kql: regex", H.write("kql", [C("A", "regex", "x")], {}).indexOf('A matches regex @"x"') >= 0);
+
+  t = H.write("generic", conds, meta);
+  truthy("generic: plain language", t.indexOf('  - CommandLine starts with "powershell.exe -File "C:\\x y.ps1""') > 0, t);
+  truthy("generic: header lines", t.indexOf("# Owner: Me") > 0 && t.indexOf("# Review or remove by: 2027-01-01") > 0);
+
+  // ================= done =================
+  document.getElementById("summary").textContent = failed ? failed + " FAILED, " + passed + " passed" : "All " + passed + " checks passed";
+  document.getElementById("summary").className = failed ? "fail" : "pass";
+  document.getElementById("out").innerHTML = lines.join("\n");
+})();
+</script>
+</body>
+</html>

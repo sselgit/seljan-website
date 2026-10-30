@@ -1,7 +1,7 @@
 # Changelog
 
 ## 1.8.0 - 2026-10-29
-- Added Highlight tuner (highlight.html): paste an alerting log and a false-positive log, highlight what to tune out, and get a Chronicle rule exclusion (also YARA-L, Sigma, SPL, KQL). The page blocks exclusions that would hide the alerting log, risky activity, or a worse version of the same event, and keeps output locked behind warnings and a checklist.
+- Added Highlight tuner (highlight.html): paste an alerting log and a false-positive log, highlight what to tune out, and get a Chronicle rule exclusion (also YARA-L, Sigma, SPL, KQL). The page blocks exclusions that would hide the alerting log, risky activity, or a worse version of the same event, and keeps output locked behind warnings and a checklist. Tests: tests/hl-test.html (88 checks).
 
 ## 1.7.0 - 2026-10-28
 

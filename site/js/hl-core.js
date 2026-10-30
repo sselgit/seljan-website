@@ -150,8 +150,6 @@
     Object.keys(seen).forEach(function (t) { add('block', 'Would hide risky activity: ' + t, seen[t] + ' of the events this would hide match this pattern. Investigate it instead of tuning it out.'); });
 
     // Only broad fields?
-    var roles = rolesOf(fp[0] || {}).names, roleByKey = {};
-    Object.keys(roles).forEach(function (r) { roleByKey[roles[r]] = r; });
     var broadOnly = conds.every(function (c) { return BROAD_ROLES[X.roleOf(c.key)] || /(^|\.)(hostname|userid|user\.name|ip)$/i.test(c.udm || ''); });
     if (broadOnly) add('block', 'Only broad fields are highlighted', 'A user name, host or address on its own describes who or where, not what happened. Excluding it hides everything that user, host or address does, including an attacker using that account or machine.');
     var imageOnly = conds.every(function (c) { return X.roleOf(c.key) === 'image'; });
@@ -183,7 +181,7 @@
     // Scope notes.
     var covered = fp.length ? Math.round(fpHit.length * 100 / fp.length) : 0;
     if (fpHit.length && fpHit.length < fp.length) add('info', 'Hides ' + fpHit.length + ' of ' + fp.length + ' false-positive events (' + covered + '%)', 'The rest keep alerting. If they are the same noise, highlight what they share too.');
-    var hasWho = conds.some(function (c) { var r = X.roleOf(c.key); return r === 'host' || r === 'user' || /hostname|userid/.test(c.udm || ''); });
+    var hasWho = conds.some(function (c) { var r = X.roleOf(c.key); return r === 'host' || r === 'user' || r === 'srcIp' || /hostname|userid|(^|\.)ip$/.test(c.udm || ''); });
     if (!hasWho && fpHit.length) add('info', 'Applies to every host and user', 'Nothing limits this to the machines or accounts where the noise comes from. If the activity is tied to certain servers, add the host as a condition.');
 
     var verdict = 'ok';
@@ -215,15 +213,14 @@
     if (meta.owner) head.push('Owner: ' + meta.owner);
     if (meta.reviewBy) head.push('Review or remove by: ' + meta.reviewBy);
     if (meta.basis) head.push('Based on: ' + meta.basis);
-    var cm = format === 'sigma' ? '# ' : (format === 'splunk' || format === 'kql' || format === 'yaral' ? '// ' : '# ');
-    if (format === 'splunk') cm = '`comment("';
+    var cm = (format === 'splunk' || format === 'kql' || format === 'yaral') ? '// ' : '# ';
 
     function comments() { return head.map(function (h) { return format === 'splunk' ? '`comment("' + h.replace(/"/g, "'") + '")`' : cm + h; }); }
 
     if (format === 'chronicle') {
       L = comments();
       L.push('');
-      L.push('Where: Detection > Rules & Detections > Rule Exclusions > Create (applies to Google curated detections only).');
+      L.push('Where: the Rule Exclusions page in Google SecOps (applies to Google curated detections only).');
       L.push('Pick the rule or rule set this exclusion is for, then add these conditions. They are combined with AND, so the alert is');
       L.push('suppressed only when every one matches:');
       L.push('');

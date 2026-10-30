@@ -15,7 +15,6 @@
     function chip(text, kind) { return SK.el('span', { className: 'chip2 ' + (kind || ''), text: text }); }
     function callout(kind, kids) { return SK.el('div', { className: 'kit-callout ' + kind }, kids); }
     function today(plus) { var d = new Date(); d.setUTCDate(d.getUTCDate() + (plus || 0)); return d.toISOString().slice(0, 10); }
-    function trunc(s, n) { s = String(s == null ? '' : s); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
 
     /* ---------- sanitize ---------- */
     SK.$('hl-san-run').addEventListener('click', function () {
@@ -102,7 +101,7 @@
     /* ---------- selecting ---------- */
 
     function addCond(c) {
-      // Same field + same value: replace instead of duplicating.
+      // One condition per field: a new highlight on the same field replaces the old one.
       state.conds = state.conds.filter(function (x) { return !(x.key === c.key); });
       state.conds.push(c);
       render();
