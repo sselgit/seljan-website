@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en" class="no-js">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data:; style-src 'self'; script-src 'self'; font-src 'self'; connect-src 'none'; base-uri 'self'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <title>Regex Trainer | SOC Analyst Toolkit</title>
+  <meta name="description" content="Paste a sample, highlight what you want to match, and learn to build the regular expression with hints, flag advice and plain-English explanations.">
+  <meta name="theme-color" content="#0B1426">
+  <meta name="color-scheme" content="dark">
+  <link rel="icon" href="../../favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../../css/styles.css">
+  <link rel="stylesheet" href="../../css/tools.css">
+  <link rel="stylesheet" href="regex.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="../../index.html" aria-label="SOC Analyst Toolkit home">
+        <span class="brand-text">SOC Analyst <em>Toolkit</em></span>
+      </a>
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">
+        <span class="sr-only">Menu</span>
+        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+      <nav id="site-nav" class="site-nav" aria-label="Main">
+        <a href="../../index.html#pivot">IOC pivot</a>
+        <a href="../../index.html#directory">Tool directory</a>
+        <a href="../../toolkit.html">Analyst toolkit</a>
+        <a href="../../check.html">Email checker</a>
+        <a href="../" class="btn btn-small" aria-current="page">Training</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="section rx-hero">
+      <div class="container rx">
+        <p class="rx-crumb"><a href="../">&larr; All training</a></p>
+        <div class="section-head">
+          <p class="eyebrow">Training</p>
+          <h1>Regex Trainer</h1>
+          <p>Paste some text, highlight what you want to find, and build the regular expression yourself. Hints come first. The answer comes only when you ask.</p>
+        </div>
+        <p class="rx-privacy"><strong>Runs only in your browser.</strong> Your text is never uploaded or saved. This page cannot make network requests.</p>
+
+        <div class="rx-panel">
+          <h2><span class="rx-n">1</span> Paste a sample</h2>
+          <label class="rx-label" for="sample">Text to search (a log, a list, an email, anything)</label>
+          <textarea id="sample" class="rx-text" rows="6" spellcheck="false" placeholder="Paste your text here, or load an example below."></textarea>
+          <div class="rx-row">
+            <span class="rx-muted">Examples:</span>
+            <button type="button" class="rx-chipbtn" data-preset="web">Web log</button>
+            <button type="button" class="rx-chipbtn" data-preset="contacts">Contacts</button>
+            <button type="button" class="rx-chipbtn" data-preset="win">Windows events</button>
+            <button type="button" class="rx-chipbtn" id="clear-all">Clear everything</button>
+          </div>
+        </div>
+
+        <div class="rx-panel">
+          <h2><span class="rx-n">2</span> Highlight what you want</h2>
+          <p class="rx-muted">Select text below with your mouse, then say whether it <strong>should</strong> or <strong>should not</strong> be matched. Add a few of each for a better result.</p>
+          <div id="view" class="rx-view" aria-label="Sample text. Select text to mark it."></div>
+          <div class="rx-selbar" id="selbar" hidden>
+            <span>Selected: <code id="seltext"></code></span>
+            <button type="button" class="btn btn-small" id="mark-yes">Should match</button>
+            <button type="button" class="btn btn-small btn-ghost" id="mark-no">Should NOT match</button>
+          </div>
+          <div class="rx-legend">
+            <span class="lg lg-yes">should match</span><span class="lg lg-no">should not match</span><span class="lg lg-hit">found by the regex</span>
+          </div>
+          <div id="chips" class="rx-chips"></div>
+          <label class="rx-check"><input type="checkbox" id="anchor"> Each match is a whole line (adds <code>^</code> and <code>$</code>)</label>
+        </div>
+
+        <div class="rx-panel">
+          <h2><span class="rx-n">3</span> Choose your flags</h2>
+          <p class="rx-muted">Flags change how the whole pattern behaves. Tick the ones you think you need. The advice updates as you highlight.</p>
+          <div id="flags" class="rx-flags"></div>
+          <p id="flagmsg" class="rx-note"></p>
+        </div>
+
+        <div class="rx-panel">
+          <h2><span class="rx-n">4</span> Build the regex</h2>
+          <div id="ident" class="rx-ident" hidden></div>
+          <div class="rx-row">
+            <label class="rx-muted" for="level">Style:</label>
+            <select id="level" class="rx-select">
+              <option value="1">Exact (only the text you highlighted)</option>
+              <option value="2" selected>Balanced (digits and letters generalised)</option>
+              <option value="3">Flexible (any length)</option>
+            </select>
+          </div>
+          <div id="hints"></div>
+          <div class="rx-row">
+            <button type="button" class="btn btn-small btn-ghost" id="hint-btn">Give me a hint</button>
+            <button type="button" class="btn btn-small btn-ghost" id="reveal-btn">Show the regex</button>
+          </div>
+          <div id="reveal" class="rx-reveal" hidden></div>
+
+          <label class="rx-label" for="mine">Try your own regex (the part between the slashes, no flags)</label>
+          <input id="mine" class="rx-input" type="text" spellcheck="false" autocomplete="off" placeholder="e.g. \d{1,3}(?:\.\d{1,3}){3}">
+          <p id="err" class="rx-err" hidden></p>
+          <div id="score" class="rx-score"></div>
+        </div>
+
+        <div class="rx-panel">
+          <h2><span class="rx-n">5</span> Understand it and use it</h2>
+          <div id="warn"></div>
+          <h3>What each part means</h3>
+          <div id="explain" class="rx-explain"><p class="rx-muted">Type a regex or reveal the coach's version to see it explained.</p></div>
+          <h3>Use it in your tool</h3>
+          <div id="snips" class="rx-snips"><p class="rx-muted">Appears once there is a regex to show.</p></div>
+        </div>
+
+        <details class="rx-panel rx-cheat">
+          <summary>Cheat sheet</summary>
+          <div class="rx-cheat-grid">
+            <div><code>.</code> any character</div><div><code>\d</code> digit &nbsp; <code>\D</code> not digit</div>
+            <div><code>\w</code> letter, digit, _ &nbsp; <code>\W</code> not</div><div><code>\s</code> whitespace &nbsp; <code>\S</code> not</div>
+            <div><code>[abc]</code> one of a, b, c</div><div><code>[^abc]</code> anything but a, b, c</div>
+            <div><code>[a-z]</code> a range</div><div><code>a|b</code> a or b</div>
+            <div><code>*</code> zero or more</div><div><code>+</code> one or more</div>
+            <div><code>?</code> zero or one</div><div><code>{3}</code> exactly 3 &nbsp; <code>{2,5}</code> 2 to 5</div>
+            <div><code>^</code> start &nbsp; <code>$</code> end</div><div><code>\b</code> word edge</div>
+            <div><code>( )</code> group and capture</div><div><code>(?: )</code> group, no capture</div>
+            <div><code>(?=x)</code> followed by x</div><div><code>(?&lt;=x)</code> preceded by x</div>
+            <div><code>\.</code> a real dot (escape specials)</div><div><code>+?</code> lazy: as few as possible</div>
+          </div>
+        </details>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <div class="footer-brand"><p class="footer-name">SOC Analyst Toolkit</p><p>A free security tool stack.</p></div>
+      <div class="footer-legal"><p>&copy; 2026 SOC Analyst Toolkit. Training pages run in your browser and make no network requests.</p></div>
+    </div>
+  </footer>
+  <script src="../../js/main.js" defer></script>
+  <script src="regex.js" defer></script>
+</body>
+</html>

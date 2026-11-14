@@ -1,6 +1,6 @@
 # SOC Analyst Toolkit
 
-Version: 1.10.1
+Version: 1.11.0
 
 Free, browser-based security helpers served at https://seljan.net:
 

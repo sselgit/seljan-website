@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.11.0 - 2026-11-14
+- New training aid: Regex Trainer (/training/regex-trainer/). Paste a sample, highlight text that should and should not match, get progressive hints, flag advice (g, i, m, s, u) with reasons, known-pattern detection (IP, email, hash, date and more), a checker for your own regex, plain-English explanation, ReDoS warning, and JavaScript, Python, grep and PowerShell snippets. Added to the training hub.
+
 ## 1.10.1 - 2026-11-14
 - Added a Training link to the main menu on every page (and to the page generator).
 
