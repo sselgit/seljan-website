@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'none'; base-uri 'self'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PowerShell Coach</title>
+<link rel="icon" href="../../favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="coach.css">
+</head>
+<body>
+<main>
+<p class="sub"><a href="../">&larr; All training</a></p>
+<h1>PowerShell Coach</h1>
+<p class="sub">Say what you want to do. You get nudges first, and the answer only when you ask. This page never runs commands. Practice in your own PowerShell window.</p>
+
+<div class="tabs" role="tablist">
+  <button role="tab" aria-selected="true" data-tab="ask">Ask for help</button>
+  <button role="tab" aria-selected="false" data-tab="build">Pipeline builder</button>
+  <button role="tab" aria-selected="false" data-tab="tips">Survival tips</button>
+</div>
+
+<section id="ask">
+  <div class="card">
+    <label for="q">What do you want to do?</label>
+    <div class="row"><input id="q" placeholder="e.g. find which programs are using the most memory"><button class="primary go" id="go">Coach me</button></div>
+    <div class="sugg" id="sugg"></div>
+  </div>
+  <div id="lesson"></div>
+</section>
+
+<section id="build" hidden>
+  <div class="card">
+    <h2>Build a pipeline step by step</h2>
+    <p class="muted tight">A pipeline passes results from one command to the next with <code>|</code>. Pick the pieces and watch the command form.</p>
+    <div class="row">
+      <div><label>1. Start with (get something)</label><select id="b-src"></select></div>
+      <div><label>2. Filter: property</label><select id="b-fprop"></select></div>
+      <div><label>operator</label><select id="b-fop">
+        <option value="">(no filter)</option><option>-eq</option><option>-ne</option><option>-gt</option><option>-lt</option><option>-like</option><option>-match</option></select></div>
+      <div><label>value</label><input id="b-fval" placeholder="e.g. Stopped or 100MB"></div>
+    </div>
+    <div class="row mt8">
+      <div><label>3. Sort by</label><select id="b-sprop"></select></div>
+      <div><label>order</label><select id="b-sdir"><option value="">ascending</option><option value=" -Descending">descending</option></select></div>
+      <div><label>4. Keep first N rows</label><input id="b-n" type="number" min="0" placeholder="all"></div>
+      <div><label>5. Show only columns (comma list)</label><input id="b-cols" placeholder="Name, Id"></div>
+    </div>
+    <div class="row mt8">
+      <div><label>6. Output</label><select id="b-out">
+        <option value="">Just show it</option><option value="Format-Table -AutoSize">Table</option>
+        <option value="Format-List">List</option><option value="Export-Csv -Path .\out.csv -NoTypeInformation">Save to CSV</option></select></div>
+    </div>
+  </div>
+  <div class="card"><h2>Your command</h2><pre id="b-cmd"></pre><div id="b-explain"></div>
+    <p class="muted">Not sure which properties exist? Run <code>&lt;command&gt; | Get-Member</code> to list them.</p></div>
+</section>
+
+<section id="tips" hidden>
+  <div class="card"><h2>Five habits that make you faster</h2>
+    <ol>
+      <li><b>Get-Help is your friend.</b> <code>Get-Help Get-Service -Examples</code> shows real examples.</li>
+      <li><b>Get-Command finds commands.</b> <code>Get-Command *service*</code> lists everything with "service" in the name.</li>
+      <li><b>Get-Member shows what you can use.</b> <code>Get-Service | Get-Member</code> lists the properties and actions.</li>
+      <li><b>Names are Verb-Noun.</b> Get reads, Set changes, New creates, Remove deletes.</li>
+      <li><b>Preview before you change.</b> Add <code>-WhatIf</code> to Stop, Remove and Set commands to see what would happen without doing it.</li>
+    </ol></div>
+</section>
+
+<p class="safety">Always test on a lab machine first. Commands that change or delete things should be run with <code>-WhatIf</code> before the real run.</p>
+</main>
+<script src="coach.js" defer></script>
+
+</body>
+</html>

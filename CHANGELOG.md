@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.10.0 - 2026-11-14
+- New Training hub at /training/ with a card list. First aid: PowerShell Coach (/training/powershell-coach/), an offline tutor with progressive hints, attempt checker and pipeline builder. Strict CSP, no network requests, no inline scripts or styles. To add an aid: new folder under site/training/ plus one card on the hub.
+
 ## 1.9.0 - 2026-10-29
 - Snort/Suricata tuner: new "Tune on the content" step. After a capture is parsed, the page shows the decoded text the rule looked at in each false positive (HTTP URI, request body or raw payload), with the matched words highlighted. Select any text, click a suggestion, or type it, and the page builds exclusions from it.
 - Spots text that is the same in every false positive (for example the table name after a SQL match, `from dog`), without needing a true-positive capture. Attack words, quotes, comment markers and bare short strings are never suggested and cannot be excluded; names attackers aim at (users, admin, password) are allowed only with a warning.
