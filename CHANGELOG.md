@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.10.1 - 2026-11-14
+- Added a Training link to the main menu on every page (and to the page generator).
+
 ## 1.10.0 - 2026-11-14
 - New Training hub at /training/ with a card list. First aid: PowerShell Coach (/training/powershell-coach/), an offline tutor with progressive hints, attempt checker and pipeline builder. Strict CSP, no network requests, no inline scripts or styles. To add an aid: new folder under site/training/ plus one card on the hub.
 

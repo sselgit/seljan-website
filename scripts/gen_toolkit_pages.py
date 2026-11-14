@@ -114,6 +114,7 @@ def page(slug, title, desc, eyebrow, h1, lead, body, scripts, net=None):
         <a href="index.html#pivot">IOC pivot</a>
         <a href="index.html#directory">Tool directory</a>
         <a href="index.html#ports">Port reference</a>
+        <a href="training/">Training</a>
         <a href="check.html">Email checker</a>
         <a href="toolkit.html" class="btn btn-small">Analyst toolkit</a>
       </nav>
