@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en" class="no-js">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <title>Training | SOC Analyst Toolkit</title>
+  <meta name="description" content="Free, hands-on training aids for new IT and security staff. They run in your browser.">
+  <meta name="theme-color" content="#0B1426">
+  <meta name="color-scheme" content="dark">
+  <link rel="icon" href="../favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../css/styles.css">
+  <link rel="stylesheet" href="../css/tools.css">
+  <link rel="stylesheet" href="training.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="../index.html" aria-label="SOC Analyst Toolkit home">
+        <span class="brand-text">SOC Analyst <em>Toolkit</em></span>
+      </a>
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">
+        <span class="sr-only">Menu</span>
+        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+      <nav id="site-nav" class="site-nav" aria-label="Main">
+        <a href="../index.html#pivot">IOC pivot</a>
+        <a href="../index.html#directory">Tool directory</a>
+        <a href="../toolkit.html">Analyst toolkit</a>
+        <a href="../check.html">Email checker</a>
+        <a href="./" class="btn btn-small" aria-current="page">Training</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="section">
+      <div class="container">
+        <div class="section-head">
+          <p class="eyebrow">Training</p>
+          <h1>Learn by doing</h1>
+          <p>Short, hands-on aids for new IT and security staff. Each one runs in your browser, gives hints before answers, and never runs commands on your computer.</p>
+        </div>
+        <!-- To add a training aid: create training/<name>/index.html, then copy one card below. -->
+        <ul class="training-list">
+          <li class="card">
+            <h2><a href="powershell-coach/">PowerShell Coach</a></h2>
+            <p>Describe what you want to do and get step-by-step hints. Build pipelines piece by piece, and check your own commands. Includes Linux/macOS equivalents.</p>
+            <p><strong>Level:</strong> beginner &middot; <strong>Topics:</strong> PowerShell, terminal basics</p>
+          </li>
+        </ul>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <div class="footer-brand"><p class="footer-name">SOC Analyst Toolkit</p><p>A free security tool stack.</p></div>
+      <div class="footer-legal"><p>&copy; 2026 SOC Analyst Toolkit. Training pages run in your browser and make no network requests.</p></div>
+    </div>
+  </footer>
+  <script src="../js/main.js" defer></script>
+</body>
+</html>
